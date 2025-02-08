@@ -1,0 +1,12 @@
+[package]
+name = "tin"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+svg = "0.18.0"
+syntect = "5.2.0"
+
+[[bin]]
+name = "tin"
+path = "main.rs"
