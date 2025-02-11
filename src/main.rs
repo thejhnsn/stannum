@@ -1,6 +1,7 @@
 extern crate svg;
 extern crate syntect;
 
+use clap::Parser;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
@@ -11,7 +12,7 @@ use syntect::easy::HighlightLines;
 use syntect::highlighting::{Color, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
-
+use tin::arguments::Arguments;
 
 // TODO: refactor for argparsing
 struct Metadata {
@@ -19,7 +20,7 @@ struct Metadata {
     output: PathBuf,
     corner_radius: i8,
     language: String, // language extension
-    theme: String, // use sublime_syntax theme
+    theme: String,    // use sublime_syntax theme
     width: i32,
     height: i32,
     padding_x: i32, // TODO: maybe remove
@@ -34,7 +35,7 @@ struct Metadata {
     background_color: Color,
     shadow_color: Color,
     shadow_blur: i32,
-    shadow_offset: i32
+    shadow_offset: i32,
 }
 
 impl Metadata {
@@ -56,10 +57,20 @@ impl Metadata {
             line_numbers: true,
             window_buttons: true,
             window_title: "".to_string(),
-            background_color: Color { r: 255, g: 255, b: 255, a: 255 },
-            shadow_color: Color { r: 0, g: 0, b: 0, a: 255 },
+            background_color: Color {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            },
+            shadow_color: Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
             shadow_blur: 5,
-            shadow_offset: 5
+            shadow_offset: 5,
         }
     }
 }
@@ -87,15 +98,13 @@ fn add_window_buttons(metadata: &Metadata) -> (Circle, Circle, Circle) {
 fn add_window_title(metadata: &Metadata, text_color: Color) -> Text {
     let header_text = Text::new("")
         .set("x", metadata.width)
-        .set("y", 10+5)
+        .set("y", 10 + 5)
         .set("text-anchor", "middle")
         .set("font-family", metadata.font_family.to_string())
         .set("font-size", metadata.font_size)
         .set("fill", rgb_to_hex(text_color)) // FIXME: take theme's text color
-        .add(TSpan::new("")
-            .add(svg::node::Text::new(metadata.window_title.as_str())));
+        .add(TSpan::new("").add(svg::node::Text::new(metadata.window_title.as_str())));
     header_text
-
 }
 
 fn add_shadow(metadata: Metadata) {
@@ -118,9 +127,10 @@ fn rgb_to_hex(color: Color) -> String {
 }
 
 fn main() -> std::io::Result<()> {
+    let args = Arguments::parse();
 
     let mut metadata = Metadata::new();
-    let file = PathBuf::from("pwnXX.py");
+    let file = args.input;
     // TODO: parse command line arguments and update metadata
 
     // TODO: extract code parsing below to a function
@@ -129,20 +139,43 @@ fn main() -> std::io::Result<()> {
     let syntax_set = SyntaxSet::load_defaults_newlines();
     let theme_set = ThemeSet::load_defaults();
 
-    // Choose syntax and theme, defaulting to plain text and base16-mocha.dark.
-    let syntax = syntax_set
-        .find_syntax_by_extension(
-            file.extension()
-                .and_then(OsStr::to_str)
-                .unwrap())
-        .unwrap_or_else(|| syntax_set.find_syntax_plain_text());
-    let theme = &theme_set.themes["base16-mocha.dark"];
+    let mut file_extension = if let Some(extension) = file.extension().and_then(OsStr::to_str) {
+        extension
+    } else {
+        "txt"
+    };
+
+    let language = if let Some(extension) = args.language {
+        extension
+    } else {
+        "".to_string()
+    };
+
+    if !language.is_empty() {
+        file_extension = language.as_str();
+    }
+
+    // Choose syntax and theme
+    let syntax = if let Some(syn_ext) = syntax_set.find_syntax_by_extension(file_extension) {
+        syn_ext
+    } else {
+        // TODO: Figure out how to normalize the names according to syntect (as providing
+        // --language rust does not work, while --language Rust does)
+        if let Some(syn_name) = syntax_set.find_syntax_by_name(file_extension) {
+            syn_name
+        } else {
+            syntax_set.find_syntax_plain_text()
+        }
+    };
+    let theme = &theme_set.themes[&args.theme];
 
     // Use the theme's background color if defined; otherwise fallback to white.
-    let bg_color = theme
-        .settings
-        .background
-        .unwrap_or(Color { r: 255, g: 255, b: 255, a: 255 });
+    let bg_color = theme.settings.background.unwrap_or(Color {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    });
     let bg_fill = rgb_to_hex(bg_color);
 
     // Read the source code from a file.
@@ -164,7 +197,7 @@ fn main() -> std::io::Result<()> {
     let mut current_y = 20 + 30;
 
     // TODO: Implement line numbers.
-    let line_numbers = true;
+    let line_numbers = args.line_numbers;
     // If line numbers are enabled, calculate the width of the line number column.
     let line_number_width = if line_numbers {
         lines.len().to_string().len()
@@ -179,17 +212,21 @@ fn main() -> std::io::Result<()> {
     for line in lines {
         i += 1;
         // Get highlighted regions: Vec<(Style, &str)>
-        let regions = highlighter.highlight_line(line, &syntax_set)
+        let regions = highlighter
+            .highlight_line(line, &syntax_set)
             .expect("Failed to highlight line");
 
         // Create a tspan for this line with an empty initial string.
-        let mut line_tspan = TSpan::new("").set("x", 20)
-            .set("y", current_y);
+        let mut line_tspan = TSpan::new("").set("x", 20).set("y", current_y);
         if line_numbers {
             // Add the line number to the beginning of the line.
             let line_number_tspan = TSpan::new("")
                 .set("fill", rgb_to_hex(theme.settings.foreground.unwrap()))
-                .add(svg::node::Text::new(format!("{:>width$}  ", i, width = line_number_width)));
+                .add(svg::node::Text::new(format!(
+                    "{:>width$}  ",
+                    i,
+                    width = line_number_width
+                )));
             line_tspan = line_tspan.add(line_number_tspan);
         }
         // For each region, create a nested tspan.
@@ -221,8 +258,8 @@ fn main() -> std::io::Result<()> {
     let background = Rectangle::new()
         .set("x", 0)
         .set("y", 0)
-        .set("rx", 10)
-        .set("ry", 10)
+        .set("rx", args.corner_radius)
+        .set("ry", args.corner_radius)
         .set("width", 800)
         .set("height", current_y)
         .set("fill", bg_fill);
@@ -248,7 +285,7 @@ fn main() -> std::io::Result<()> {
     // remove \n between > and <tspan>
     output = output.replace(">\n<tspan", "><tspan");
     // Save the SVG document.
-    fs::write("highlighted_code.svg", output)?;
+    fs::write(args.output, output)?;
     // svg::save("highlighted_code.svg", &document)?;
     Ok(())
 }
