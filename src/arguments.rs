@@ -42,6 +42,10 @@ pub struct Arguments {
     #[arg(long, default_value = "monospace")]
     pub font: String,
 
+    /// Indicates whether font should be embedded in the SVG
+    #[arg(long)]
+    pub embed_font: bool,
+
     /// Indicates whether line numbers are on/off
     #[arg(long)]
     pub line_numbers: bool,

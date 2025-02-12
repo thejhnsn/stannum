@@ -1,12 +1,13 @@
 extern crate svg;
 extern crate syntect;
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use clap::Parser;
 use font_kit::family_name::FamilyName;
 use font_kit::source::SystemSource;
 use std::ffi::OsStr;
 use std::fs;
-use svg::node::element::{Circle, Rectangle, TSpan, Text};
+use svg::node::element::{Circle, Rectangle, Style, TSpan, Text};
 use svg::Document;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Color, ThemeSet};
@@ -55,6 +56,20 @@ fn add_window_title(
         .set("fill", rgb_to_hex(text_color)) // FIXME: take theme's text color
         .add(TSpan::new("").add(svg::node::Text::new(window_title.unwrap().as_str())));
     header_text
+}
+
+fn embed_font(bytes: Vec<u8>, font_name: &str) -> Style {
+    let base64_font = STANDARD.encode(&bytes);
+    let font_face = format!(
+        r#"
+        @font-face {{
+            font-family: '{}';
+            src: url(data:font/woff2;base64,{}) format('woff2');
+        }}
+        "#,
+        font_name, base64_font
+    );
+    Style::new(font_face)
 }
 
 fn add_shadow() {
@@ -240,6 +255,16 @@ fn main() -> std::io::Result<()> {
         .set("viewBox", (0, 0, current_x, current_y))
         .add(background)
         .add(text_elem);
+    // Embed the font if requested.
+    if args.embed_font {
+        let font_bytes = font
+            .copy_font_data()
+            .expect("Failed to embed font")
+            .to_vec();
+        let embedding = embed_font(font_bytes, args.font.as_str());
+        let defs = svg::node::element::Definitions::new().add(embedding);
+        document = document.add(defs);
+    }
     // Add window title if provided
     if args.window_title != None {
         let header_text = add_window_title(
