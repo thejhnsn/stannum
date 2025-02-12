@@ -10,16 +10,6 @@ pub enum Decorations {
     None,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
-pub enum ShadowType {
-    None,
-    DropRight,
-    DropLeft,
-    TopRight,
-    TopLeft,
-    Full,
-}
-
 #[derive(Parser)]
 #[command(version, about = "Create vector images of your source code!", long_about = None)]
 pub struct Arguments {
@@ -85,9 +75,29 @@ pub struct Arguments {
     #[arg(long, short = 'r', default_value_t = 8)]
     pub corner_radius: u8,
 
-    /// Set the shadow type
-    #[arg(long, value_enum, default_value = "none")]
-    pub shadow_type: ShadowType,
+    /// Turn off shadows
+    #[arg(long)]
+    pub no_shadow: bool,
+
+    /// Set shadow bluriness (stdDeviation)
+    #[arg(long, default_value_t = 0.25)]
+    pub shadow_blur: f32,
+
+    /// Set shadow color
+    #[arg(long, default_value = "#333333")]
+    pub shadow_color: String,
+
+    /// Set the opacity of the shadow
+    #[arg(long, default_value_t = 0.5)]
+    pub shadow_opacity: f32,
+
+    /// Set the x offset of the shadow
+    #[arg(long, short = 'x', default_value_t = 2.0)]
+    pub shadow_offset_x: f32,
+
+    /// Set the y offset of the shadow
+    #[arg(long, short = 'y', default_value_t = 2.0)]
+    pub shadow_offset_y: f32,
 }
 
 /// Tries to parse u32 from Option<&str>

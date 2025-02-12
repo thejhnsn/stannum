@@ -7,7 +7,9 @@ use font_kit::family_name::FamilyName;
 use font_kit::source::SystemSource;
 use std::ffi::OsStr;
 use std::fs;
-use svg::node::element::{Circle, Rectangle, Style, TSpan, Text};
+use svg::node::element::{
+    Circle, Definitions, Filter, FilterEffectDropShadow, Rectangle, Style, TSpan, Text,
+};
 use svg::Document;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Color, ThemeSet};
@@ -72,8 +74,20 @@ fn embed_font(bytes: Vec<u8>, font_name: &str) -> Style {
     Style::new(font_face)
 }
 
-fn add_shadow() {
-    unimplemented!()
+fn get_shadow(
+    shadow_blur: f32,
+    shadow_color: String,
+    shadow_opacity: f32,
+    shadow_offset_x: f32,
+    shadow_offset_y: f32,
+) -> FilterEffectDropShadow {
+    let shadow = FilterEffectDropShadow::new()
+        .set("stdDeviation", shadow_blur)
+        .set("flood-color", shadow_color)
+        .set("flood-opacity", shadow_opacity)
+        .set("dx", shadow_offset_x)
+        .set("dy", shadow_offset_y);
+    shadow
 }
 
 // Utility function to convert a syntect Color to a HEX string.
@@ -163,7 +177,7 @@ fn main() -> std::io::Result<()> {
     let line_height = 18;
     let side_padding = 20.0;
     let mut current_x = 0.0;
-    let mut current_y = 20 + 30;
+    let mut current_y = 20.0 + 30.0;
     let line_numbers = args.line_numbers;
     // If line numbers are enabled, calculate the width of the line number column.
     let line_number_width = if line_numbers {
@@ -187,13 +201,9 @@ fn main() -> std::io::Result<()> {
         let mut line_tspan = TSpan::new("").set("x", 20).set("y", current_y);
         if line_numbers {
             // Add the line number to the beginning of the line.
-            let line_number_tspan = TSpan::new("")
-                .set("fill", rgb_to_hex(theme.settings.foreground.unwrap()))
-                .add(svg::node::Text::new(format!(
-                    "{:>width$}  ",
-                    current_line,
-                    width = line_number_width
-                )));
+            let line_number = format!("{:>width$}  ", current_line, width = line_number_width);
+            let line_number_tspan =
+                TSpan::new(line_number).set("fill", rgb_to_hex(theme.settings.foreground.unwrap()));
             line_tspan = line_tspan.add(line_number_tspan);
         }
         // For each region, create a nested tspan.
@@ -202,9 +212,7 @@ fn main() -> std::io::Result<()> {
                 continue;
             }
             let fill_color = rgb_to_hex(region_style.foreground);
-            let region_tspan = TSpan::new("")
-                .set("fill", fill_color)
-                .add(svg::node::Text::new(region_text));
+            let region_tspan = TSpan::new(region_text).set("fill", fill_color);
             line_tspan = line_tspan.add(region_tspan);
         }
 
@@ -231,7 +239,7 @@ fn main() -> std::io::Result<()> {
         if current_x < width {
             current_x = width;
         }
-        current_y += line_height;
+        current_y += line_height as f32;
     }
     // two times because of padding on both sides
     // FIXME: somehow there's a little bit more space on the right side...
@@ -239,6 +247,28 @@ fn main() -> std::io::Result<()> {
 
     if current_x < 800.0 {
         current_x = 800.0;
+    }
+    let shadow = get_shadow(
+        args.shadow_blur,
+        args.shadow_color,
+        args.shadow_opacity,
+        args.shadow_offset_x,
+        args.shadow_offset_y,
+    );
+    let filter = Filter::new().set("id", "shadow").add(shadow);
+    let mut defs = Definitions::new().add(filter);
+    let style = if !args.no_shadow {
+        "filter:url(#shadow)"
+    } else {
+        ""
+    };
+    if args.embed_font {
+        let font_bytes = font
+            .copy_font_data()
+            .expect("Failed to embed font")
+            .to_vec();
+        let embedding = embed_font(font_bytes, args.font.as_str());
+        defs = defs.add(embedding);
     }
     // Create a background rectangle using the theme's background color.
     let background = Rectangle::new()
@@ -248,23 +278,35 @@ fn main() -> std::io::Result<()> {
         .set("ry", args.corner_radius)
         .set("width", current_x)
         .set("height", current_y)
-        .set("fill", bg_fill);
+        .set("fill", bg_fill)
+        .set("style", style);
 
+    // Adjust the viewbox to also fit the shadow
+    // FIXME: Doesn't work properly yet, for |shadow offset y| > 5 there's a cutoff...
+    // Also if shadow blur is set to a relatively high value there's also more cutoff...
+    let start_x = if args.shadow_offset_x < 0.0 {
+        args.shadow_offset_x
+    } else {
+        0.0
+    };
+    let start_y = if args.shadow_offset_y < 0.0 {
+        args.shadow_offset_y
+    } else {
+        0.0
+    };
+    if args.shadow_offset_x > 0.0 {
+        current_x += args.shadow_offset_x;
+    }
+    if args.shadow_offset_y > 0.0 {
+        current_y += args.shadow_offset_y;
+    }
     // Compose the final SVG document.
     let mut document = Document::new()
-        .set("viewBox", (0, 0, current_x, current_y))
+        .set("viewBox", (start_x, start_y, current_x, current_y))
+        .add(defs)
         .add(background)
         .add(text_elem);
     // Embed the font if requested.
-    if args.embed_font {
-        let font_bytes = font
-            .copy_font_data()
-            .expect("Failed to embed font")
-            .to_vec();
-        let embedding = embed_font(font_bytes, args.font.as_str());
-        let defs = svg::node::element::Definitions::new().add(embedding);
-        document = document.add(defs);
-    }
     // Add window title if provided
     if args.window_title != None {
         let header_text = add_window_title(
@@ -296,5 +338,6 @@ fn main() -> std::io::Result<()> {
     output = output.replace(">\n<tspan", "><tspan");
     // Save the SVG document.
     fs::write(args.output, output)?;
+    // svg::save("highlighted_code.svg", &document)?;
     Ok(())
 }
