@@ -38,6 +38,10 @@ pub struct Arguments {
     #[arg(long, default_value = "base16-mocha.dark")]
     pub theme: String,
 
+    /// Set the font
+    #[arg(long, default_value = "monospace")]
+    pub font: String,
+
     /// Indicates whether line numbers are on/off
     #[arg(long)]
     pub line_numbers: bool,

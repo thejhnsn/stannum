@@ -2,122 +2,62 @@ extern crate svg;
 extern crate syntect;
 
 use clap::Parser;
-use std::collections::HashMap;
+use font_kit::family_name::FamilyName;
+use font_kit::source::SystemSource;
 use std::ffi::OsStr;
 use std::fs;
-use std::path::PathBuf;
 use svg::node::element::{Circle, Rectangle, TSpan, Text};
 use svg::Document;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Color, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
-use tin::arguments::Arguments;
+use tin::arguments::{Arguments, Decorations};
 
-// TODO: refactor for argparsing
-struct Metadata {
-    input: PathBuf,
-    output: PathBuf,
-    corner_radius: i8,
-    language: String, // language extension
-    theme: String,    // use sublime_syntax theme
-    width: i32,
-    height: i32,
-    padding_x: i32, // TODO: maybe remove
-    padding_y: i32, // TODO: maybe remove
-    font_size: i32,
-    font_family: String,
-    highlighted_code: HashMap<i32, (i32, i32)>, // line number -> (x, y)
-    line_break: bool, // whether to break too long lines - best to be used with line_numbers
-    line_numbers: bool,
-    window_buttons: bool, // TODO: use enum instead? for different types of buttons
-    window_title: String,
-    background_color: Color,
-    shadow_color: Color,
-    shadow_blur: i32,
-    shadow_offset: i32,
-}
-
-impl Metadata {
-    fn new() -> Metadata {
-        Metadata {
-            input: PathBuf::from(""),
-            output: PathBuf::from("./out.svg"),
-            corner_radius: 10,
-            language: "plain".to_string(),
-            theme: "base16-mocha.dark".to_string(),
-            width: 800,
-            height: 600,
-            padding_x: 20,
-            padding_y: 20,
-            font_size: 14,
-            font_family: "monospace".to_string(),
-            highlighted_code: HashMap::new(),
-            line_break: false,
-            line_numbers: true,
-            window_buttons: true,
-            window_title: "".to_string(),
-            background_color: Color {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 255,
-            },
-            shadow_color: Color {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-            shadow_blur: 5,
-            shadow_offset: 5,
+// TODO: also implement other button types
+fn add_window_buttons(window_decorations: Decorations) -> (Circle, Circle, Circle) {
+    match window_decorations {
+        // The None case is not needed, but it's here for completeness
+        Decorations::None | Decorations::MacOS | Decorations::Windows => {
+            let circle_close = Circle::new()
+                .set("cx", 15)
+                .set("cy", 15)
+                .set("r", 6)
+                .set("fill", "#ff605c"); // red
+            let circle_minimize = Circle::new()
+                .set("cx", 35)
+                .set("cy", 15)
+                .set("r", 6)
+                .set("fill", "#ffbd44"); // yellow
+            let circle_zoom = Circle::new()
+                .set("cx", 55)
+                .set("cy", 15)
+                .set("r", 6)
+                .set("fill", "#00ca4e"); // green
+            (circle_close, circle_minimize, circle_zoom)
         }
     }
 }
 
-// TODO: also implement other button types
-fn add_window_buttons(metadata: &Metadata) -> (Circle, Circle, Circle) {
-    let circle_close = Circle::new()
-        .set("cx", 15)
-        .set("cy", 15)
-        .set("r", 6)
-        .set("fill", "#ff605c"); // red
-    let circle_minimize = Circle::new()
-        .set("cx", 35)
-        .set("cy", 15)
-        .set("r", 6)
-        .set("fill", "#ffbd44"); // yellow
-    let circle_zoom = Circle::new()
-        .set("cx", 55)
-        .set("cy", 15)
-        .set("r", 6)
-        .set("fill", "#00ca4e"); // green
-    (circle_close, circle_minimize, circle_zoom)
-}
-
-fn add_window_title(metadata: &Metadata, text_color: Color) -> Text {
+fn add_window_title(
+    window_title: Option<String>,
+    font: &String,
+    text_color: Color,
+    rect_width: f32,
+) -> Text {
     let header_text = Text::new("")
-        .set("x", metadata.width)
+        .set("x", rect_width / 2.0)
         .set("y", 10 + 5)
         .set("text-anchor", "middle")
-        .set("font-family", metadata.font_family.to_string())
-        .set("font-size", metadata.font_size)
+        .set("font-family", font.as_str())
+        .set("font-size", 14)
+        .set("font-weight", "bold")
         .set("fill", rgb_to_hex(text_color)) // FIXME: take theme's text color
-        .add(TSpan::new("").add(svg::node::Text::new(metadata.window_title.as_str())));
+        .add(TSpan::new("").add(svg::node::Text::new(window_title.unwrap().as_str())));
     header_text
 }
 
-fn add_shadow(metadata: Metadata) {
-    unimplemented!()
-}
-
-fn parse_code(metadata: &mut Metadata) -> (Text, i32) {
-    // return the text element and the height of the text
-    unimplemented!()
-}
-
-fn print_help() {
-    // print help message
+fn add_shadow() {
     unimplemented!()
 }
 
@@ -128,10 +68,19 @@ fn rgb_to_hex(color: Color) -> String {
 
 fn main() -> std::io::Result<()> {
     let args = Arguments::parse();
-
-    let mut metadata = Metadata::new();
     let file = args.input;
-    // TODO: parse command line arguments and update metadata
+
+    // Load the font from the system for width calculations.
+    let source = SystemSource::new();
+    let handle = source
+        .select_best_match(
+            &[FamilyName::Title(args.font.clone())],
+            &font_kit::properties::Properties::new(),
+        )
+        .unwrap();
+    let font = handle.load().unwrap();
+    let font_size = 14.0;
+    let font_scale = font_size / font.metrics().units_per_em as f32;
 
     // TODO: extract code parsing below to a function
 
@@ -183,20 +132,23 @@ fn main() -> std::io::Result<()> {
     let lines: Vec<&str> = LinesWithEndings::from(&code).collect();
 
     // Prepare the overall text element. Provide an empty string as initial content.
+    let mut fonts_str = String::new();
+    fonts_str.push_str(&args.font);
+    fonts_str.push_str(", monospace"); // fallback font
     let mut text_elem = Text::new("")
         .set("x", 20)
         .set("y", 20)
-        .set("font-family", "monospace")
-        .set("font-size", "14")
+        .set("font-family", fonts_str.as_str())
+        .set("font-size", font_size)
         .set("xml:space", "preserve")
         .set("fill", "black");
 
     // Define the line height in pixels.
     // FIXME: magic numbers
     let line_height = 18;
+    let side_padding = 20.0;
+    let mut current_x = 0.0;
     let mut current_y = 20 + 30;
-
-    // TODO: Implement line numbers.
     let line_numbers = args.line_numbers;
     // If line numbers are enabled, calculate the width of the line number column.
     let line_number_width = if line_numbers {
@@ -207,10 +159,10 @@ fn main() -> std::io::Result<()> {
 
     // Create a HighlightLines instance.
     let mut highlighter = HighlightLines::new(syntax, theme);
-    let mut i = 0;
+    let mut current_line = 0;
     // Process each line from the file.
     for line in lines {
-        i += 1;
+        current_line += 1;
         // Get highlighted regions: Vec<(Style, &str)>
         let regions = highlighter
             .highlight_line(line, &syntax_set)
@@ -224,7 +176,7 @@ fn main() -> std::io::Result<()> {
                 .set("fill", rgb_to_hex(theme.settings.foreground.unwrap()))
                 .add(svg::node::Text::new(format!(
                     "{:>width$}  ",
-                    i,
+                    current_line,
                     width = line_number_width
                 )));
             line_tspan = line_tspan.add(line_number_tspan);
@@ -246,36 +198,69 @@ fn main() -> std::io::Result<()> {
         }
         // Add the line tspan to the overall text element.
         text_elem = text_elem.add(line_tspan);
+
+        // Calculate the width of the current line.
+        // This is only an approximation, as every svg renderer may render text slightly differently.
+        let width: f32 = line
+            .chars()
+            .filter_map(|ch| {
+                font.glyph_for_char(ch)
+                    .map(|glyph_id| {
+                        let advance = font.advance(glyph_id).ok()?;
+                        Some(advance.x() * font_scale)
+                    })
+                    .flatten()
+            })
+            .sum();
+
+        if current_x < width {
+            current_x = width;
+        }
         current_y += line_height;
     }
+    // two times because of padding on both sides
+    // FIXME: somehow there's a little bit more space on the right side...
+    current_x += 2.0 * side_padding;
 
-    let header_text = add_window_title(&metadata, theme.settings.foreground.unwrap());
-
-    let window_controls = add_window_buttons(&metadata);
-
+    if current_x < 800.0 {
+        current_x = 800.0;
+    }
     // Create a background rectangle using the theme's background color.
-    // FIXME: take info from struct instead
     let background = Rectangle::new()
         .set("x", 0)
         .set("y", 0)
         .set("rx", args.corner_radius)
         .set("ry", args.corner_radius)
-        .set("width", 800)
+        .set("width", current_x)
         .set("height", current_y)
         .set("fill", bg_fill);
 
     // Compose the final SVG document.
-    // FIXME: take info from struct instead
-    let document = Document::new()
-        .set("viewBox", (0, 0, 800, current_y))
+    let mut document = Document::new()
+        .set("viewBox", (0, 0, current_x, current_y))
         .add(background)
-        .add(header_text)
-        .add(window_controls.0)
-        .add(window_controls.1)
-        .add(window_controls.2)
         .add(text_elem);
-    let mut output = document.to_string();
+    // Add window title if provided
+    if args.window_title != None {
+        let header_text = add_window_title(
+            args.window_title,
+            &fonts_str,
+            theme.settings.foreground.unwrap(),
+            current_x,
+        );
+        document = document.add(header_text);
+    }
+    // Add window decorations if provided
+    if args.window_decorations != Decorations::None {
+        let window_controls = add_window_buttons(args.window_decorations);
+        document = document
+            .add(window_controls.0)
+            .add(window_controls.1)
+            .add(window_controls.2);
+    }
 
+    // Convert the SVG document to a string to further process it.
+    let mut output = document.to_string();
     // TODO: extract to a function? and maybe there's a better way to do this...
     // removes unnecessary whitespaces
     // remove \n between </tspan> and <tspan>
@@ -286,6 +271,5 @@ fn main() -> std::io::Result<()> {
     output = output.replace(">\n<tspan", "><tspan");
     // Save the SVG document.
     fs::write(args.output, output)?;
-    // svg::save("highlighted_code.svg", &document)?;
     Ok(())
 }
