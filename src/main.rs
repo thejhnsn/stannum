@@ -8,8 +8,9 @@ use font_kit::source::SystemSource;
 use std::ffi::OsStr;
 use std::fs;
 use svg::node::element::{
-    Circle, Definitions, Filter, FilterEffectDropShadow, Rectangle, Style, TSpan, Text,
+    Circle, Definitions, Filter, FilterEffectOffset, Rectangle, Style, TSpan, Text,
 };
+use svg::node::element::{FilterEffectComposite, FilterEffectFlood, FilterEffectGaussianBlur};
 use svg::Document;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Color, ThemeSet};
@@ -80,14 +81,36 @@ fn get_shadow(
     shadow_opacity: f32,
     shadow_offset_x: f32,
     shadow_offset_y: f32,
-) -> FilterEffectDropShadow {
-    let shadow = FilterEffectDropShadow::new()
-        .set("stdDeviation", shadow_blur)
-        .set("flood-color", shadow_color)
+) -> Filter {
+    let flood = FilterEffectFlood::new()
+        .set("result", "flood")
+        .set("in", "SourceGraphic")
         .set("flood-opacity", shadow_opacity)
+        .set("flood-color", shadow_color);
+    let blur = FilterEffectGaussianBlur::new()
+        .set("result", "blur")
+        .set("in", "SourceGraphic")
+        .set("stdDeviation", shadow_blur);
+    let offset = FilterEffectOffset::new()
+        .set("result", "offset")
+        .set("in", "blur")
         .set("dx", shadow_offset_x)
         .set("dy", shadow_offset_y);
-    shadow
+    let comp1 = FilterEffectComposite::new()
+        .set("result", "comp1")
+        .set("operator", "in")
+        .set("in", "flood")
+        .set("in2", "offset");
+    let comp2 = FilterEffectComposite::new()
+        .set("in", "SourceGraphic")
+        .set("in2", "comp1");
+    Filter::new()
+        .set("id", "shadow")
+        .add(flood)
+        .add(blur)
+        .add(offset)
+        .add(comp1)
+        .add(comp2)
 }
 
 // Utility function to convert a syntect Color to a HEX string.
@@ -255,13 +278,13 @@ fn main() -> std::io::Result<()> {
         args.shadow_offset_x,
         args.shadow_offset_y,
     );
-    let filter = Filter::new().set("id", "shadow").add(shadow);
-    let mut defs = Definitions::new().add(filter);
+    let mut defs = Definitions::new().add(shadow);
     let style = if !args.no_shadow {
         "filter:url(#shadow)"
     } else {
         ""
     };
+    // Embed the font if requested.
     if args.embed_font {
         let font_bytes = font
             .copy_font_data()
@@ -282,23 +305,21 @@ fn main() -> std::io::Result<()> {
         .set("style", style);
 
     // Adjust the viewbox to also fit the shadow
-    // FIXME: Doesn't work properly yet, for |shadow offset y| > 5 there's a cutoff...
-    // Also if shadow blur is set to a relatively high value there's also more cutoff...
-    let start_x = if args.shadow_offset_x < 0.0 {
+    let start_x = if args.shadow_offset_x < 0.0 && !args.no_shadow {
         args.shadow_offset_x
     } else {
         0.0
     };
-    let start_y = if args.shadow_offset_y < 0.0 {
+    let start_y = if args.shadow_offset_y < 0.0 && !args.no_shadow {
         args.shadow_offset_y
     } else {
         0.0
     };
-    if args.shadow_offset_x > 0.0 {
+    if args.shadow_offset_x > 0.0 && !args.no_shadow {
         current_x += args.shadow_offset_x;
     }
-    if args.shadow_offset_y > 0.0 {
-        current_y += args.shadow_offset_y;
+    if !args.no_shadow {
+        current_y += args.shadow_offset_y.abs();
     }
     // Compose the final SVG document.
     let mut document = Document::new()
@@ -306,7 +327,6 @@ fn main() -> std::io::Result<()> {
         .add(defs)
         .add(background)
         .add(text_elem);
-    // Embed the font if requested.
     // Add window title if provided
     if args.window_title != None {
         let header_text = add_window_title(
