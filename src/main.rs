@@ -103,18 +103,18 @@ fn add_window_buttons(
 fn add_window_title(
     window_title: Option<String>,
     font: &String,
-    text_color: Color,
+    font_color: Color,
     rect_width: f32,
 ) -> Text {
-    let header_text = Text::new("")
+    let header_text = Text::new(window_title.unwrap().as_str())
         .set("x", rect_width / 2.0)
-        .set("y", 10 + 5)
+        .set("y", 15)
+        .set("dominant-baseline", "middle")
         .set("text-anchor", "middle")
         .set("font-family", font.as_str())
         .set("font-size", 14)
         .set("font-weight", "bold")
-        .set("fill", rgb_to_hex(text_color)) // FIXME: take theme's text color
-        .add(TSpan::new("").add(svg::node::Text::new(window_title.unwrap().as_str())));
+        .set("fill", rgb_to_hex(font_color));
     header_text
 }
 
