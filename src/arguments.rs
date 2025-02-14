@@ -75,6 +75,10 @@ pub struct Arguments {
     #[arg(long, short = 'r', default_value_t = 8)]
     pub corner_radius: u8,
 
+    /// Set the minimum width of the rectangle containing the code
+    #[arg(long, default_value_t = 800.0)]
+    pub min_width: f32,
+
     /// Turn off shadows
     #[arg(long)]
     pub no_shadow: bool,

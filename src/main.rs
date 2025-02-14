@@ -13,6 +13,7 @@ use svg::node::element::{
     Circle, Definitions, Filter, FilterEffectOffset, Group, Line, Rectangle, Style, TSpan, Text,
 };
 use svg::node::element::{FilterEffectComposite, FilterEffectFlood, FilterEffectGaussianBlur};
+use svg::node::Blob;
 use svg::Document;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Color, ThemeSet};
@@ -289,30 +290,32 @@ fn main() -> std::io::Result<()> {
             .highlight_line(line, &syntax_set)
             .expect("Failed to highlight line");
 
-        // Create a tspan for this line with an empty initial string.
-        let mut line_tspan = TSpan::new("").set("x", 20).set("y", current_y);
+        // Create an empty string for the line's content
+        let mut line_content = String::new();
         if line_numbers {
             // Add the line number to the beginning of the line.
             let line_number = format!("{:>width$}  ", current_line, width = line_number_width);
             let line_number_tspan =
                 TSpan::new(line_number).set("fill", rgb_to_hex(theme.settings.foreground.unwrap()));
-            line_tspan = line_tspan.add(line_number_tspan);
+            line_content = format!("{}{}", line_content, line_number_tspan.to_string());
         }
         // For each region, create a nested tspan.
         for (region_style, region_text) in regions {
-            if region_text == "" {
+            if region_text == "" && region_text == "\n" {
                 continue;
             }
             let fill_color = rgb_to_hex(region_style.foreground);
             let region_tspan = TSpan::new(region_text).set("fill", fill_color);
-            line_tspan = line_tspan.add(region_tspan);
+            line_content = format!("{}{}", line_content, region_tspan.to_string());
         }
+        line_content = format!(
+            "<tspan x=\"{}\" y=\"{}\">{}</tspan>",
+            20, current_y, line_content
+        );
+        let line_blob = Blob::new(line_content);
 
-        if line_tspan.get_children().len() == 0 {
-            continue;
-        }
         // Add the line tspan to the overall text element.
-        text_elem = text_elem.add(line_tspan);
+        text_elem = text_elem.add(line_blob);
 
         // Calculate the width of the current line.
         // This is only an approximation, as every svg renderer may render text slightly differently.
@@ -337,8 +340,8 @@ fn main() -> std::io::Result<()> {
     // FIXME: somehow there's a little bit more space on the right side...
     current_x += 2.0 * side_padding;
 
-    if current_x < 800.0 {
-        current_x = 800.0;
+    if current_x < args.min_width {
+        current_x = args.min_width;
     }
     let shadow = get_shadow(
         args.shadow_blur,
@@ -420,18 +423,7 @@ fn main() -> std::io::Result<()> {
         }
     }
 
-    // Convert the SVG document to a string to further process it.
-    let mut output = document.to_string();
-    // TODO: extract to a function? and maybe there's a better way to do this...
-    // removes unnecessary whitespaces
-    // remove \n between </tspan> and <tspan>
-    output = output.replace("</tspan>\n<tspan fill", "</tspan><tspan fill");
-    // remove \n between </tspan> and </tspan>
-    output = output.replace("\n</tspan>", "</tspan>");
-    // remove \n between > and <tspan>
-    output = output.replace(">\n<tspan", "><tspan");
-    // Save the SVG document.
-    fs::write(args.output, output)?;
-    // svg::save("highlighted_code.svg", &document)?;
+    // Save the final SVG
+    svg::save(args.output, &document)?;
     Ok(())
 }
