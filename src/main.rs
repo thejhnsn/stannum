@@ -96,18 +96,13 @@ fn add_window_buttons(window_decorations: Decorations, width: f32, font_color: C
     }
 }
 
-fn add_window_title(
-    window_title: Option<String>,
-    font: &String,
-    font_color: Color,
-    rect_width: f32,
-) -> Text {
-    let header_text = Text::new(window_title.unwrap().as_str())
+fn add_window_title(window_title: &str, font: &str, font_color: Color, rect_width: f32) -> Text {
+    let header_text = Text::new(window_title)
         .set("x", rect_width / 2.0)
         .set("y", 15)
         .set("dominant-baseline", "middle")
         .set("text-anchor", "middle")
-        .set("font-family", font.as_str())
+        .set("font-family", font)
         .set("font-size", 14)
         .set("font-weight", "bold")
         .set("fill", rgb_to_hex(font_color));
@@ -214,14 +209,23 @@ fn main() -> std::io::Result<()> {
 
     // Load the font from the system for width calculations.
     let source = SystemSource::new();
-    let handle = source
-        .select_best_match(
-            &[FamilyName::Title(args.font.clone())],
-            &font_kit::properties::Properties::new(),
-        )
-        .unwrap();
-    // TODO: Remove unwrap -> use if let...
-    let font = handle.load().unwrap();
+    let handle = match source.select_best_match(
+        &[FamilyName::Title(args.font.clone())],
+        &font_kit::properties::Properties::new(),
+    ) {
+        Ok(handle) => handle,
+        Err(_) => {
+            eprintln!("Font not found: {}", args.font);
+            std::process::exit(1);
+        }
+    };
+    let font = match handle.load() {
+        Ok(font) => font,
+        Err(_) => {
+            eprintln!("Failed to load font: {}", args.font);
+            std::process::exit(1);
+        }
+    };
     let font_size = 14.0;
     let font_scale = font_size / font.metrics().units_per_em as f32;
 
@@ -234,7 +238,7 @@ fn main() -> std::io::Result<()> {
     let theme = &theme_set.themes[&args.theme];
 
     // Use the theme's background color if defined; otherwise fallback to white.
-    let bg_color = theme.settings.background.unwrap_or(Color {
+    let bg_color = theme.settings.background.unwrap_or_else(|| Color {
         r: 255,
         g: 255,
         b: 255,
@@ -278,6 +282,15 @@ fn main() -> std::io::Result<()> {
     // Create a HighlightLines instance.
     let mut highlighter = HighlightLines::new(syntax, theme);
 
+    // Use the theme's default text color if defined; otherwise fallback to black.
+    // TODO: maybe use the background color to determine the text color (invert it?)
+    let default_text_color = theme.settings.foreground.unwrap_or_else(|| Color {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 255,
+    });
+
     // Determine which lines should be selected in the image
     let mut selected_lines_iter = (1..=lines_of_code).collect::<Vec<usize>>().into_iter();
     if let Some(sel_lines) = args.lines {
@@ -301,7 +314,7 @@ fn main() -> std::io::Result<()> {
             let dots = TSpan::new(dots)
                 .set("x", 20)
                 .set("y", current_y)
-                .set("fill", rgb_to_hex(theme.settings.foreground.unwrap()));
+                .set("fill", rgb_to_hex(default_text_color));
             current_y += line_height as f32;
             text_elem = text_elem.add(dots);
             // We need to feed the highlighter every line, otherwise some colors may be incorrect
@@ -322,7 +335,7 @@ fn main() -> std::io::Result<()> {
             // Add the line number to the beginning of the line.
             let line_number = format!("{:>width$}  ", line_number, width = line_number_width);
             let line_number_tspan =
-                TSpan::new(line_number).set("fill", rgb_to_hex(theme.settings.foreground.unwrap()));
+                TSpan::new(line_number).set("fill", rgb_to_hex(default_text_color));
             line_content = format!("{}{}", line_content, line_number_tspan.to_string());
         }
         // For each region, create a nested tspan.
@@ -426,20 +439,18 @@ fn main() -> std::io::Result<()> {
         .add(text_elem);
     // Add window title if provided
     if args.window_title != None {
-        let header_text = add_window_title(
-            args.window_title,
-            &fonts_str,
-            theme.settings.foreground.unwrap(),
-            current_x,
-        );
-        document = document.add(header_text);
+        if let Some(window_title) = &args.window_title {
+            let header_text =
+                add_window_title(window_title, &fonts_str, default_text_color, current_x);
+            document = document.add(header_text);
+        }
     }
     // Add window decorations if provided
     if args.window_decorations != Decorations::None {
         let window_controls = add_window_buttons(
             args.window_decorations,
             current_x - args.shadow_offset_x,
-            theme.settings.foreground.unwrap(),
+            default_text_color,
         );
         document = document.add(window_controls);
     }
