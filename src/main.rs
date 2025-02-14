@@ -27,6 +27,8 @@ enum WindowButtonStyle {
     None,
 }
 
+// TODO: Return svg group and remove duplicate enum
+// Should be ok to insert panic! if window_decorations is None (should not be possible)
 fn add_window_buttons(
     window_decorations: Decorations,
     width: f32,
@@ -224,11 +226,10 @@ fn main() -> std::io::Result<()> {
             &font_kit::properties::Properties::new(),
         )
         .unwrap();
+    // TODO: Remove unwrap -> use if let...
     let font = handle.load().unwrap();
     let font_size = 14.0;
     let font_scale = font_size / font.metrics().units_per_em as f32;
-
-    // TODO: extract code parsing below to a function
 
     // Load the default syntax and theme sets.
     let syntax_set = SyntaxSet::load_defaults_newlines();
@@ -272,19 +273,50 @@ fn main() -> std::io::Result<()> {
     let mut current_x = 0.0;
     let mut current_y = 20.0 + 30.0;
     let line_numbers = args.line_numbers;
+    let lines_of_code = lines.len();
     // If line numbers are enabled, calculate the width of the line number column.
     let line_number_width = if line_numbers {
-        lines.len().to_string().len()
+        lines_of_code.to_string().len()
     } else {
         0
     };
 
     // Create a HighlightLines instance.
     let mut highlighter = HighlightLines::new(syntax, theme);
-    let mut current_line = 0;
-    // Process each line from the file.
-    for line in lines {
-        current_line += 1;
+
+    // Determine which lines should be selected in the image
+    let mut selected_lines_iter = (1..=lines_of_code).collect::<Vec<usize>>().into_iter();
+    if let Some(sel_lines) = args.lines {
+        if *sel_lines.last().unwrap_or(&usize::MAX) > lines_of_code {
+            // TODO: Return an error here
+            panic!();
+        }
+        selected_lines_iter = sel_lines.into_iter()
+    }
+
+    let mut prev_line_number = 0;
+    for line_number in selected_lines_iter {
+        let line = lines[line_number - 1];
+        if line_number != prev_line_number + 1 {
+            // Add ... to skipped lines
+            let dots = if line_numbers {
+                format!("{:>width$}  ...", "", width = line_number_width)
+            } else {
+                "...".to_string()
+            };
+            let dots = TSpan::new(dots)
+                .set("x", 20)
+                .set("y", current_y)
+                .set("fill", rgb_to_hex(theme.settings.foreground.unwrap()));
+            current_y += line_height as f32;
+            text_elem = text_elem.add(dots);
+            // We need to feed the highlighter every line, otherwise some colors may be incorrect
+            for skipped_line in (prev_line_number + 1)..line_number {
+                let _ = highlighter.highlight_line(lines[skipped_line], &syntax_set);
+            }
+        }
+        prev_line_number = line_number;
+        // Process each line from the file.
         // Get highlighted regions: Vec<(Style, &str)>
         let regions = highlighter
             .highlight_line(line, &syntax_set)
@@ -294,7 +326,7 @@ fn main() -> std::io::Result<()> {
         let mut line_content = String::new();
         if line_numbers {
             // Add the line number to the beginning of the line.
-            let line_number = format!("{:>width$}  ", current_line, width = line_number_width);
+            let line_number = format!("{:>width$}  ", line_number, width = line_number_width);
             let line_number_tspan =
                 TSpan::new(line_number).set("fill", rgb_to_hex(theme.settings.foreground.unwrap()));
             line_content = format!("{}{}", line_content, line_number_tspan.to_string());
@@ -372,6 +404,8 @@ fn main() -> std::io::Result<()> {
         .set("fill", bg_fill)
         .set("style", style);
 
+    // FIXME: This still does not properly work, should probably adjust the start coordinates of
+    // the rectangle if the shadow offset is negative...
     // Adjust the viewbox to also fit the shadow
     let start_x = if args.shadow_offset_x < 0.0 && !args.no_shadow {
         args.shadow_offset_x
@@ -424,6 +458,5 @@ fn main() -> std::io::Result<()> {
     }
 
     // Save the final SVG
-    svg::save(args.output, &document)?;
-    Ok(())
+    svg::save(args.output, &document)
 }

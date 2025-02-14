@@ -44,13 +44,13 @@ pub struct Arguments {
     /// Specified as a comma seperated list and/or as a range of lines.
     /// Example: 1,2,5-20, highlights line 1, 2, and 5 to 20.
     #[arg(long, value_parser = parse_lines)]
-    pub lines: Option<std::vec::Vec<u32>>,
+    pub lines: Option<std::vec::Vec<usize>>,
 
     /// Lines to highlight in the image.
     /// Specified as a comma seperated list and/or as a range of lines.
     /// Example: 1,2,5-20, highlights line 1, 2, and 5 to 20.
     #[arg(long, value_parser = parse_lines)]
-    pub highlight_lines: Option<std::vec::Vec<u32>>,
+    pub highlight_lines: Option<std::vec::Vec<usize>>,
 
     /// Indicates whether the full width of a line should be highlighted or only the part
     /// containing code.
@@ -61,7 +61,7 @@ pub struct Arguments {
     /// Specified as a semicolon seperated list of triples (#line, #column_start, #column_end).
     /// Example: 1,5,20;10,1,15 highlights columns 5 to 20 in line 1 and columns 1 to 15 in line 10
     #[arg(long, value_parser = parse_line_columns)]
-    pub highlight_columns: Option<std::vec::Vec<(u32, u32, u32)>>,
+    pub highlight_columns: Option<std::vec::Vec<(usize, usize, usize)>>,
 
     /// Name displayed at the top of the image
     #[arg(long)]
@@ -104,8 +104,8 @@ pub struct Arguments {
     pub shadow_offset_y: f32,
 }
 
-/// Tries to parse u32 from Option<&str>
-fn parse_u32_from_option(next: Option<&str>) -> Result<u32, String> {
+/// Tries to parse usize from Option<&str>
+fn parse_usize_from_option(next: Option<&str>) -> Result<usize, String> {
     Ok(if let Some(value_str) = next {
         if let Ok(value) = value_str.parse() {
             value
@@ -118,7 +118,7 @@ fn parse_u32_from_option(next: Option<&str>) -> Result<u32, String> {
 }
 
 /// Converts input list and ranges to vector of line numbers
-pub fn parse_lines(value: &str) -> Result<Vec<u32>, String> {
+pub fn parse_lines(value: &str) -> Result<Vec<usize>, String> {
     let mut lines = Vec::new();
     if value.is_empty() {
         return Ok(lines);
@@ -127,8 +127,8 @@ pub fn parse_lines(value: &str) -> Result<Vec<u32>, String> {
     for line in value.split(',') {
         if line.contains('-') {
             let mut range = line.split('-');
-            let start = parse_u32_from_option(range.next())?;
-            let end = parse_u32_from_option(range.next())?;
+            let start = parse_usize_from_option(range.next())?;
+            let end = parse_usize_from_option(range.next())?;
             if end < start {
                 return Err("Invalid range!".to_string());
             } else if start == 0 {
@@ -137,7 +137,7 @@ pub fn parse_lines(value: &str) -> Result<Vec<u32>, String> {
             for line_number in start..=end {
                 lines.push(line_number);
             }
-        } else if let Ok(line_number) = line.parse::<u32>() {
+        } else if let Ok(line_number) = line.parse::<usize>() {
             if line_number == 0 {
                 return Err("Invalid line: 0!".to_string());
             }
@@ -155,7 +155,7 @@ pub fn parse_lines(value: &str) -> Result<Vec<u32>, String> {
 }
 
 /// Converts input list to highlight-columns triples
-pub fn parse_line_columns(value: &str) -> Result<Vec<(u32, u32, u32)>, String> {
+pub fn parse_line_columns(value: &str) -> Result<Vec<(usize, usize, usize)>, String> {
     let mut line_columns = Vec::new();
     if value.is_empty() {
         return Ok(line_columns);
