@@ -21,19 +21,7 @@ use syntect::parsing::{SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
 use tin::arguments::{Arguments, Decorations};
 
-enum WindowButtonStyle {
-    MacOS(Circle, Circle, Circle),   // red, yellow, green
-    Windows(Line, Rectangle, Group), // minimize, maximize, close
-    None,
-}
-
-// TODO: Return svg group and remove duplicate enum
-// Should be ok to insert panic! if window_decorations is None (should not be possible)
-fn add_window_buttons(
-    window_decorations: Decorations,
-    width: f32,
-    font_color: Color,
-) -> WindowButtonStyle {
+fn add_window_buttons(window_decorations: Decorations, width: f32, font_color: Color) -> Group {
     match window_decorations {
         Decorations::MacOS => {
             let circle_close = Circle::new()
@@ -51,7 +39,10 @@ fn add_window_buttons(
                 .set("cy", 15)
                 .set("r", 6)
                 .set("fill", "#00ca4e"); // green
-            WindowButtonStyle::MacOS(circle_close, circle_minimize, circle_zoom)
+            Group::new()
+                .add(circle_close)
+                .add(circle_minimize)
+                .add(circle_zoom)
         }
         Decorations::Windows => {
             let padding = 15.0;
@@ -95,10 +86,13 @@ fn add_window_buttons(
                 .set("y2", center_y - length / 2.0)
                 .set("stroke", rgb_to_hex(font_color))
                 .set("stroke-width", 2);
-            let close = Group::new().add(close_line1).add(close_line2);
-            WindowButtonStyle::Windows(minimize, maximize, close)
+            Group::new()
+                .add(minimize)
+                .add(maximize)
+                .add(close_line1)
+                .add(close_line2)
         }
-        _ => WindowButtonStyle::None,
+        _ => panic!("This should never happen..."),
     }
 }
 
@@ -351,6 +345,7 @@ fn main() -> std::io::Result<()> {
 
         // Calculate the width of the current line.
         // This is only an approximation, as every svg renderer may render text slightly differently.
+        // TODO: fallback to line height if width is not available (e.g. for unknown characters in unicode)
         let width: f32 = line
             .chars()
             .filter_map(|ch| {
@@ -446,15 +441,7 @@ fn main() -> std::io::Result<()> {
             current_x - args.shadow_offset_x,
             theme.settings.foreground.unwrap(),
         );
-        match window_controls {
-            WindowButtonStyle::MacOS(close, minimize, zoom) => {
-                document = document.add(close).add(minimize).add(zoom);
-            }
-            WindowButtonStyle::Windows(minimize, maximize, close) => {
-                document = document.add(close).add(minimize).add(maximize);
-            }
-            _ => {}
-        }
+        document = document.add(window_controls);
     }
 
     // Save the final SVG
