@@ -10,7 +10,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::PathBuf;
 use svg::node::element::{
-    Circle, Definitions, Filter, FilterEffectOffset, Rectangle, Style, TSpan, Text,
+    Circle, Definitions, Filter, FilterEffectOffset, Group, Line, Rectangle, Style, TSpan, Text,
 };
 use svg::node::element::{FilterEffectComposite, FilterEffectFlood, FilterEffectGaussianBlur};
 use svg::Document;
@@ -20,11 +20,19 @@ use syntect::parsing::{SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
 use tin::arguments::{Arguments, Decorations};
 
-// TODO: also implement other button types
-fn add_window_buttons(window_decorations: Decorations) -> (Circle, Circle, Circle) {
+enum WindowButtonStyle {
+    MacOS(Circle, Circle, Circle),   // red, yellow, green
+    Windows(Line, Rectangle, Group), // minimize, maximize, close
+    None,
+}
+
+fn add_window_buttons(
+    window_decorations: Decorations,
+    width: f32,
+    font_color: Color,
+) -> WindowButtonStyle {
     match window_decorations {
-        // The None case is not needed, but it's here for completeness
-        Decorations::None | Decorations::MacOS | Decorations::Windows => {
+        Decorations::MacOS => {
             let circle_close = Circle::new()
                 .set("cx", 15)
                 .set("cy", 15)
@@ -40,8 +48,54 @@ fn add_window_buttons(window_decorations: Decorations) -> (Circle, Circle, Circl
                 .set("cy", 15)
                 .set("r", 6)
                 .set("fill", "#00ca4e"); // green
-            (circle_close, circle_minimize, circle_zoom)
+            WindowButtonStyle::MacOS(circle_close, circle_minimize, circle_zoom)
         }
+        Decorations::Windows => {
+            let padding = 15.0;
+            let length = 10.0;
+            let center_x = width - padding;
+            let center_y = padding;
+            let minimize = Line::new()
+                // the line starts at (start of the maximize button) - padding - length
+                // -> rect_x - length - padding
+                // and it ends at the same x position + length
+                .set("x1", center_x - 2.5 * length - 2.0 * padding)
+                .set("y1", 15)
+                .set("x2", center_x - 1.5 * length - 2.0 * padding)
+                .set("y2", 15)
+                .set("stroke", rgb_to_hex(font_color))
+                .set("stroke-width", 2);
+            let maximize = Rectangle::new()
+                // the rectangle starts at (start of the minimize button) - padding - length
+                // -> close_x1 - length - padding
+                .set("x", center_x - 1.5 * length - padding)
+                .set("y", 10)
+                .set("rx", 2)
+                .set("ry", 2)
+                .set("width", 10)
+                .set("height", 10)
+                .set("fill", "none")
+                .set("stroke", rgb_to_hex(font_color))
+                .set("stroke-width", 2);
+            // calculate start and end points for the close button
+            let close_line1 = Line::new()
+                .set("x1", center_x - length / 2.0)
+                .set("y1", center_y - length / 2.0)
+                .set("x2", center_x + length / 2.0)
+                .set("y2", center_y + length / 2.0)
+                .set("stroke", rgb_to_hex(font_color))
+                .set("stroke-width", 2);
+            let close_line2 = Line::new()
+                .set("x1", center_x - length / 2.0)
+                .set("y1", center_y + length / 2.0)
+                .set("x2", center_x + length / 2.0)
+                .set("y2", center_y - length / 2.0)
+                .set("stroke", rgb_to_hex(font_color))
+                .set("stroke-width", 2);
+            let close = Group::new().add(close_line1).add(close_line2);
+            WindowButtonStyle::Windows(minimize, maximize, close)
+        }
+        _ => WindowButtonStyle::None,
     }
 }
 
@@ -350,11 +404,20 @@ fn main() -> std::io::Result<()> {
     }
     // Add window decorations if provided
     if args.window_decorations != Decorations::None {
-        let window_controls = add_window_buttons(args.window_decorations);
-        document = document
-            .add(window_controls.0)
-            .add(window_controls.1)
-            .add(window_controls.2);
+        let window_controls = add_window_buttons(
+            args.window_decorations,
+            current_x - args.shadow_offset_x,
+            theme.settings.foreground.unwrap(),
+        );
+        match window_controls {
+            WindowButtonStyle::MacOS(close, minimize, zoom) => {
+                document = document.add(close).add(minimize).add(zoom);
+            }
+            WindowButtonStyle::Windows(minimize, maximize, close) => {
+                document = document.add(close).add(minimize).add(maximize);
+            }
+            _ => {}
+        }
     }
 
     // Convert the SVG document to a string to further process it.
