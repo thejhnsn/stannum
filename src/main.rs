@@ -4,9 +4,11 @@ extern crate syntect;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use clap::Parser;
 use font_kit::family_name::FamilyName;
+use font_kit::font::Font;
 use font_kit::source::SystemSource;
 use std::ffi::OsStr;
 use std::fs;
+use std::path::PathBuf;
 use svg::node::element::{
     Circle, Definitions, Filter, FilterEffectOffset, Rectangle, Style, TSpan, Text,
 };
@@ -14,7 +16,7 @@ use svg::node::element::{FilterEffectComposite, FilterEffectFlood, FilterEffectG
 use svg::Document;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Color, ThemeSet};
-use syntect::parsing::SyntaxSet;
+use syntect::parsing::{SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
 use tin::arguments::{Arguments, Decorations};
 
@@ -61,8 +63,12 @@ fn add_window_title(
     header_text
 }
 
-fn embed_font(bytes: Vec<u8>, font_name: &str) -> Style {
-    let base64_font = STANDARD.encode(&bytes);
+fn embed_font(font: Font, font_name: &str) -> Style {
+    let font_bytes = font
+        .copy_font_data()
+        .expect("Failed to embed font")
+        .to_vec();
+    let base64_font = STANDARD.encode(&font_bytes);
     let font_face = format!(
         r#"
         @font-face {{
@@ -73,6 +79,39 @@ fn embed_font(bytes: Vec<u8>, font_name: &str) -> Style {
         font_name, base64_font
     );
     Style::new(font_face)
+}
+
+fn get_syntax(syntax_set: &SyntaxSet, file: PathBuf, language: Option<String>) -> &SyntaxReference {
+    let mut file_extension = if let Some(extension) = file.extension().and_then(OsStr::to_str) {
+        extension
+    } else {
+        "txt"
+    };
+
+    let language = if let Some(extension) = language {
+        extension
+    } else {
+        "".to_string()
+    };
+
+    if !language.is_empty() {
+        file_extension = language.as_str();
+    }
+
+    // TODO: Find syntax by first line (shebang) could also be added here
+    // Choose syntax and theme
+    let syntax = if let Some(syn_ext) = syntax_set.find_syntax_by_extension(file_extension) {
+        syn_ext
+    } else {
+        // TODO: Figure out how to normalize the names according to syntect (as providing
+        // --language rust does not work, while --language Rust does)
+        if let Some(syn_name) = syntax_set.find_syntax_by_name(file_extension) {
+            syn_name
+        } else {
+            syntax_set.find_syntax_plain_text()
+        }
+    };
+    syntax
 }
 
 fn get_shadow(
@@ -140,34 +179,8 @@ fn main() -> std::io::Result<()> {
     let syntax_set = SyntaxSet::load_defaults_newlines();
     let theme_set = ThemeSet::load_defaults();
 
-    let mut file_extension = if let Some(extension) = file.extension().and_then(OsStr::to_str) {
-        extension
-    } else {
-        "txt"
-    };
+    let syntax = get_syntax(&syntax_set, file.clone(), args.language);
 
-    let language = if let Some(extension) = args.language {
-        extension
-    } else {
-        "".to_string()
-    };
-
-    if !language.is_empty() {
-        file_extension = language.as_str();
-    }
-
-    // Choose syntax and theme
-    let syntax = if let Some(syn_ext) = syntax_set.find_syntax_by_extension(file_extension) {
-        syn_ext
-    } else {
-        // TODO: Figure out how to normalize the names according to syntect (as providing
-        // --language rust does not work, while --language Rust does)
-        if let Some(syn_name) = syntax_set.find_syntax_by_name(file_extension) {
-            syn_name
-        } else {
-            syntax_set.find_syntax_plain_text()
-        }
-    };
     let theme = &theme_set.themes[&args.theme];
 
     // Use the theme's background color if defined; otherwise fallback to white.
@@ -183,6 +196,8 @@ fn main() -> std::io::Result<()> {
     let code = fs::read_to_string(file)?;
     let lines: Vec<&str> = LinesWithEndings::from(&code).collect();
 
+    // TODO: Should probably not be hardcoded, adjust this according to the shadow offset and
+    // blur...
     // Prepare the overall text element. Provide an empty string as initial content.
     let mut fonts_str = String::new();
     fonts_str.push_str(&args.font);
@@ -286,11 +301,7 @@ fn main() -> std::io::Result<()> {
     };
     // Embed the font if requested.
     if args.embed_font {
-        let font_bytes = font
-            .copy_font_data()
-            .expect("Failed to embed font")
-            .to_vec();
-        let embedding = embed_font(font_bytes, args.font.as_str());
+        let embedding = embed_font(font, args.font.as_str());
         defs = defs.add(embedding);
     }
     // Create a background rectangle using the theme's background color.
