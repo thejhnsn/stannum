@@ -233,7 +233,8 @@ fn main() -> std::io::Result<()> {
     let code = fs::read_to_string(file.clone())?;
     let lines: Vec<&str> = LinesWithEndings::from(&code).collect();
     if lines.len() < 1 {
-        panic!();
+        eprintln!("Empty file!");
+        std::process::exit(1);
     }
 
     let syntax = get_syntax(&syntax_set, file, args.language, lines[0]);
@@ -294,8 +295,8 @@ fn main() -> std::io::Result<()> {
     let mut selected_lines_iter = (1..=lines_of_code).collect::<Vec<usize>>().into_iter();
     if let Some(sel_lines) = args.lines {
         if *sel_lines.last().unwrap_or(&usize::MAX) > lines_of_code {
-            // TODO: Return an error here
-            panic!();
+            eprintln!("Line out of range!");
+            std::process::exit(1);
         }
         selected_lines_iter = sel_lines.into_iter()
     }
