@@ -127,32 +127,28 @@ fn embed_font(font: Font, font_name: &str) -> Style {
     Style::new(font_face)
 }
 
-fn get_syntax(syntax_set: &SyntaxSet, file: PathBuf, language: Option<String>) -> &SyntaxReference {
-    let mut file_extension = if let Some(extension) = file.extension().and_then(OsStr::to_str) {
-        extension
-    } else {
-        "txt"
-    };
-
-    let language = if let Some(extension) = language {
-        extension
+fn get_syntax<'a>(
+    syntax_set: &'a SyntaxSet,
+    file: PathBuf,
+    language: Option<String>,
+    first_line: &str,
+) -> &'a SyntaxReference {
+    let file_extension = if let Some(lang) = language {
+        lang
+    } else if let Some(extension) = file.extension().and_then(OsStr::to_str) {
+        extension.to_string()
     } else {
         "".to_string()
     };
 
-    if !language.is_empty() {
-        file_extension = language.as_str();
-    }
-
-    // TODO: Find syntax by first line (shebang) could also be added here
     // Choose syntax and theme
-    let syntax = if let Some(syn_ext) = syntax_set.find_syntax_by_extension(file_extension) {
+    let syntax = if let Some(syn_ext) = syntax_set.find_syntax_by_extension(&file_extension) {
         syn_ext
     } else {
-        // TODO: Figure out how to normalize the names according to syntect (as providing
-        // --language rust does not work, while --language Rust does)
-        if let Some(syn_name) = syntax_set.find_syntax_by_name(file_extension) {
+        if let Some(syn_name) = syntax_set.find_syntax_by_name(&file_extension) {
             syn_name
+        } else if let Some(shebang) = syntax_set.find_syntax_by_first_line(first_line) {
+            shebang
         } else {
             syntax_set.find_syntax_plain_text()
         }
@@ -233,7 +229,14 @@ fn main() -> std::io::Result<()> {
     let syntax_set = SyntaxSet::load_defaults_newlines();
     let theme_set = ThemeSet::load_defaults();
 
-    let syntax = get_syntax(&syntax_set, file.clone(), args.language);
+    // Read the source code from a file.
+    let code = fs::read_to_string(file.clone())?;
+    let lines: Vec<&str> = LinesWithEndings::from(&code).collect();
+    if lines.len() < 1 {
+        panic!();
+    }
+
+    let syntax = get_syntax(&syntax_set, file, args.language, lines[0]);
 
     let theme = &theme_set.themes[&args.theme];
 
@@ -245,10 +248,6 @@ fn main() -> std::io::Result<()> {
         a: 255,
     });
     let bg_fill = rgb_to_hex(bg_color);
-
-    // Read the source code from a file.
-    let code = fs::read_to_string(file)?;
-    let lines: Vec<&str> = LinesWithEndings::from(&code).collect();
 
     // TODO: Should probably not be hardcoded, adjust this according to the shadow offset and
     // blur...
