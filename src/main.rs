@@ -141,7 +141,7 @@ fn get_syntax<'a>(
         "".to_string()
     };
 
-    // Choose syntax and theme
+    // Choose syntax based on language name/file extension/first line of the file
     let syntax = if let Some(syn_ext) = syntax_set.find_syntax_by_extension(&file_extension) {
         syn_ext
     } else {
@@ -194,6 +194,38 @@ fn get_shadow(
         .add(comp2)
 }
 
+fn get_bounding_box(
+    shadow: bool,
+    shadow_offset_x: f32,
+    shadow_offset_y: f32,
+    mut current_x: f32,
+    mut current_y: f32,
+) -> (f32, f32, f32, f32) {
+    // FIXME: I don't really how to calculate this properly, seems to be clipping/cutoff no matter
+    // how large the viebox is (e.g. using a value of 10 for the shadow blur)
+    // May also just be implementation defined (maybe some svg renderer renders this correctly???)
+    // To large/small offsets also cause clipping adjusting the viewbox doesn't help here either
+
+    // Adjust the viewbox to also fit the shadow
+    if shadow {
+        let start_x = if shadow_offset_x < 0.0 {
+            shadow_offset_x
+        } else {
+            0.0
+        };
+        let start_y = if shadow_offset_y < 0.0 {
+            shadow_offset_y
+        } else {
+            0.0
+        };
+        current_x += shadow_offset_x.abs();
+        current_y += shadow_offset_y.abs();
+        (start_x, start_y, current_x, current_y)
+    } else {
+        (0.0, 0.0, current_x, current_y)
+    }
+}
+
 // Utility function to convert a syntect Color to a HEX string.
 fn rgb_to_hex(color: Color) -> String {
     format!("#{:02X}{:02X}{:02X}", color.r, color.g, color.b)
@@ -202,6 +234,8 @@ fn rgb_to_hex(color: Color) -> String {
 fn main() -> std::io::Result<()> {
     let args = Arguments::parse();
     let file = args.input;
+    // Whether the image contains a shadow
+    let shadow = !args.no_shadow;
 
     // Load the font from the system for width calculations.
     let source = SystemSource::new();
@@ -232,8 +266,9 @@ fn main() -> std::io::Result<()> {
     // Read the source code from a file.
     let code = fs::read_to_string(file.clone())?;
     let lines: Vec<&str> = LinesWithEndings::from(&code).collect();
-    if lines.len() < 1 {
-        eprintln!("Empty file!");
+    let lines_of_code = lines.len();
+    if lines_of_code < 1 {
+        eprintln!("Empty file, exiting!");
         std::process::exit(1);
     }
 
@@ -271,7 +306,6 @@ fn main() -> std::io::Result<()> {
     let mut current_x = 0.0;
     let mut current_y = 20.0 + 30.0;
     let line_numbers = args.line_numbers;
-    let lines_of_code = lines.len();
     // If line numbers are enabled, calculate the width of the line number column.
     let line_number_width = if line_numbers {
         lines_of_code.to_string().len()
@@ -383,19 +417,15 @@ fn main() -> std::io::Result<()> {
     if current_x < args.min_width {
         current_x = args.min_width;
     }
-    let shadow = get_shadow(
+    let shadow_filter = get_shadow(
         args.shadow_blur,
         args.shadow_color,
         args.shadow_opacity,
         args.shadow_offset_x,
         args.shadow_offset_y,
     );
-    let mut defs = Definitions::new().add(shadow);
-    let style = if !args.no_shadow {
-        "filter:url(#shadow)"
-    } else {
-        ""
-    };
+    let mut defs = Definitions::new().add(shadow_filter);
+    let style = if shadow { "filter:url(#shadow)" } else { "" };
     // Embed the font if requested.
     if args.embed_font {
         let embedding = embed_font(font, args.font.as_str());
@@ -412,28 +442,16 @@ fn main() -> std::io::Result<()> {
         .set("fill", bg_fill)
         .set("style", style);
 
-    // FIXME: This still does not properly work, should probably adjust the start coordinates of
-    // the rectangle if the shadow offset is negative...
-    // Adjust the viewbox to also fit the shadow
-    let start_x = if args.shadow_offset_x < 0.0 && !args.no_shadow {
-        args.shadow_offset_x
-    } else {
-        0.0
-    };
-    let start_y = if args.shadow_offset_y < 0.0 && !args.no_shadow {
-        args.shadow_offset_y
-    } else {
-        0.0
-    };
-    if args.shadow_offset_x > 0.0 && !args.no_shadow {
-        current_x += args.shadow_offset_x;
-    }
-    if !args.no_shadow {
-        current_y += args.shadow_offset_y.abs();
-    }
+    let bounding_box = get_bounding_box(
+        shadow,
+        args.shadow_offset_x,
+        args.shadow_offset_y,
+        current_x,
+        current_y,
+    );
     // Compose the final SVG document.
     let mut document = Document::new()
-        .set("viewBox", (start_x, start_y, current_x, current_y))
+        .set("viewBox", bounding_box)
         .add(defs)
         .add(background)
         .add(text_elem);
