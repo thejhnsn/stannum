@@ -13,18 +13,19 @@ pub enum Decorations {
 #[derive(Parser)]
 #[command(version, about = "Create vector images of your source code!", long_about = None)]
 pub struct Arguments {
-    /// Input filepath
+    /// Set the path of the input file
     pub input: PathBuf,
 
-    /// Output filepath
+    /// Set the path of the output file
     #[arg(short, long, default_value = "./out.svg")]
     pub output: String,
 
-    /// Define the source language, if not provided inferred by the input file extension
+    /// Set the source language, if not provided it will be inferred by the file extension or first
+    /// line of the file
     #[arg(long)]
     pub language: Option<String>,
 
-    /// Set the theme to use
+    /// Set the theme
     #[arg(long, default_value = "base16-mocha.dark")]
     pub theme: String,
 
@@ -32,42 +33,37 @@ pub struct Arguments {
     #[arg(long, default_value = "monospace")]
     pub font: String,
 
-    /// Indicates whether font should be embedded in the SVG
+    /// Turn on font embedding (-> font will be contained within the svg file)
     #[arg(long)]
     pub embed_font: bool,
 
-    /// Indicates whether line numbers are on/off
+    /// Turn on line numbers
     #[arg(long)]
     pub line_numbers: bool,
 
-    /// Lines to select from the input file (if not provided -> whole file).
+    /// Set which lines to select from the input file (if not provided -> whole file).
     /// Specified as a comma seperated list and/or as a range of lines.
     /// Example: 1,2,5-20, highlights line 1, 2, and 5 to 20.
     #[arg(long, value_parser = parse_lines)]
     pub lines: Option<std::vec::Vec<usize>>,
 
-    /// Lines to highlight in the image.
+    /// Set which lines to highlight in the image.
     /// Specified as a comma seperated list and/or as a range of lines.
     /// Example: 1,2,5-20, highlights line 1, 2, and 5 to 20.
     #[arg(long, value_parser = parse_lines)]
     pub highlight_lines: Option<std::vec::Vec<usize>>,
 
-    /// Indicates whether the full width of a line should be highlighted or only the part
-    /// containing code.
-    #[arg(long)]
-    pub highlight_full_lines: bool,
-
-    /// Columns to highlight within a given line.
+    /// Set which column range to highlight within a given line.
     /// Specified as a semicolon seperated list of triples (#line, #column_start, #column_end).
     /// Example: 1,5,20;10,1,15 highlights columns 5 to 20 in line 1 and columns 1 to 15 in line 10
     #[arg(long, value_parser = parse_line_columns)]
     pub highlight_columns: Option<std::vec::Vec<(usize, usize, usize)>>,
 
-    /// Name displayed at the top of the image
+    /// Set title displayed at the top of the image
     #[arg(long)]
     pub window_title: Option<String>,
 
-    /// Choose window decorations for the image
+    /// Set the window decorations of the image
     #[arg(long, value_enum, default_value = "mac-os")]
     pub window_decorations: Decorations,
 
@@ -79,28 +75,33 @@ pub struct Arguments {
     #[arg(long, default_value_t = 800.0)]
     pub min_width: f32,
 
-    /// Turn off shadows
+    /// Turn off the shadow of the background
     #[arg(long)]
     pub no_shadow: bool,
 
+    /// Turn on composite of multiple filters instead of feDropShadow (only makes a slight
+    /// difference, but this will make the shadow properly render in Inkscape and PowerPoint)
+    #[arg(long)]
+    pub composite_shadow: bool,
+
     /// Set shadow bluriness (stdDeviation)
-    #[arg(long, default_value_t = 0.25)]
+    #[arg(long, default_value_t = 1.0)]
     pub shadow_blur: f32,
 
     /// Set shadow color
-    #[arg(long, default_value = "#333333")]
+    #[arg(long, default_value = "#444444")]
     pub shadow_color: String,
 
     /// Set the opacity of the shadow
     #[arg(long, default_value_t = 0.5)]
     pub shadow_opacity: f32,
 
-    /// Set the x offset of the shadow
-    #[arg(long, short = 'x', default_value_t = 2.0)]
+    /// Set the x offset of the shadow (for negative offsets use '-x=-5')
+    #[arg(long, short = 'x', default_value_t = 4.0)]
     pub shadow_offset_x: f32,
 
-    /// Set the y offset of the shadow
-    #[arg(long, short = 'y', default_value_t = 2.0)]
+    /// Set the y offset of the shadow (for negative offsets use '-y=-5')
+    #[arg(long, short = 'y', default_value_t = 4.0)]
     pub shadow_offset_y: f32,
 }
 

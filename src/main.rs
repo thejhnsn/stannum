@@ -10,7 +10,8 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::PathBuf;
 use svg::node::element::{
-    Circle, Definitions, Filter, FilterEffectOffset, Group, Line, Rectangle, Style, TSpan, Text,
+    Circle, Definitions, Filter, FilterEffectDropShadow, FilterEffectOffset, Group, Line,
+    Rectangle, Style, TSpan, Text,
 };
 use svg::node::element::{FilterEffectComposite, FilterEffectFlood, FilterEffectGaussianBlur};
 use svg::node::Blob;
@@ -162,36 +163,47 @@ fn get_shadow(
     shadow_opacity: f32,
     shadow_offset_x: f32,
     shadow_offset_y: f32,
+    composite_shadow: bool,
 ) -> Filter {
-    let flood = FilterEffectFlood::new()
-        .set("result", "flood")
-        .set("in", "SourceGraphic")
-        .set("flood-opacity", shadow_opacity)
-        .set("flood-color", shadow_color);
-    let blur = FilterEffectGaussianBlur::new()
-        .set("result", "blur")
-        .set("in", "SourceGraphic")
-        .set("stdDeviation", shadow_blur);
-    let offset = FilterEffectOffset::new()
-        .set("result", "offset")
-        .set("in", "blur")
-        .set("dx", shadow_offset_x)
-        .set("dy", shadow_offset_y);
-    let comp1 = FilterEffectComposite::new()
-        .set("result", "comp1")
-        .set("operator", "in")
-        .set("in", "flood")
-        .set("in2", "offset");
-    let comp2 = FilterEffectComposite::new()
-        .set("in", "SourceGraphic")
-        .set("in2", "comp1");
-    Filter::new()
-        .set("id", "shadow")
-        .add(flood)
-        .add(blur)
-        .add(offset)
-        .add(comp1)
-        .add(comp2)
+    if composite_shadow {
+        let flood = FilterEffectFlood::new()
+            .set("result", "flood")
+            .set("in", "SourceGraphic")
+            .set("flood-opacity", shadow_opacity)
+            .set("flood-color", shadow_color);
+        let blur = FilterEffectGaussianBlur::new()
+            .set("result", "blur")
+            .set("in", "SourceGraphic")
+            .set("stdDeviation", shadow_blur);
+        let offset = FilterEffectOffset::new()
+            .set("result", "offset")
+            .set("in", "blur")
+            .set("dx", shadow_offset_x)
+            .set("dy", shadow_offset_y);
+        let comp1 = FilterEffectComposite::new()
+            .set("result", "comp1")
+            .set("operator", "in")
+            .set("in", "flood")
+            .set("in2", "offset");
+        let comp2 = FilterEffectComposite::new()
+            .set("in", "SourceGraphic")
+            .set("in2", "comp1");
+        Filter::new()
+            .set("id", "shadow")
+            .add(flood)
+            .add(blur)
+            .add(offset)
+            .add(comp1)
+            .add(comp2)
+    } else {
+        let shadow = FilterEffectDropShadow::new()
+            .set("stdDeviation", shadow_blur)
+            .set("flood-color", shadow_color)
+            .set("flood-opacity", shadow_opacity)
+            .set("dx", shadow_offset_x)
+            .set("dy", shadow_offset_y);
+        Filter::new().set("id", "shadow").add(shadow)
+    }
 }
 
 fn get_bounding_box(
@@ -423,6 +435,7 @@ fn main() -> std::io::Result<()> {
         args.shadow_opacity,
         args.shadow_offset_x,
         args.shadow_offset_y,
+        args.composite_shadow,
     );
     let mut defs = Definitions::new().add(shadow_filter);
     let style = if shadow { "filter:url(#shadow)" } else { "" };
