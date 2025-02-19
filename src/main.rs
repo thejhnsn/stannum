@@ -17,7 +17,7 @@ use svg::node::element::{FilterEffectComposite, FilterEffectFlood, FilterEffectG
 use svg::node::Blob;
 use svg::Document;
 use syntect::easy::HighlightLines;
-use syntect::highlighting::{Color, ThemeSet};
+use syntect::highlighting::{Color, Theme, ThemeSet};
 use syntect::parsing::{SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
 use tin::arguments::{Arguments, Decorations};
@@ -126,6 +126,47 @@ fn embed_font(font: Font, font_name: &str) -> Style {
         font_name, base64_font
     );
     Style::new(font_face)
+}
+
+fn get_theme(theme_set: &mut ThemeSet, theme: String) -> Theme {
+    // Check whether theme name is a sublime syntax file or just a name
+    let theme_path = PathBuf::from(theme.clone());
+    if let Some(extension) = theme_path.extension().and_then(OsStr::to_str) {
+        if extension == "tmTheme" {
+            // Return theme from file or exit on error
+            match ThemeSet::get_theme(theme_path) {
+                Ok(th) => return th,
+                Err(_) => {
+                    eprintln!("Something went wrong while loading the supplied theme!");
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
+    if cfg!(unix) {
+        // FIXME: This is kind of wonky and won't work for windows...
+
+        // Try to add all themes found in the config directory
+        let home = if let Ok(home) = std::env::var("HOME") {
+            home
+        } else {
+            eprintln!("Could not find home directory!");
+            std::process::exit(1);
+        };
+        let config_dir = format!("{}{}", home, "/.config/tin/themes/");
+        if let Err(e) = theme_set.add_from_folder(config_dir) {
+            eprintln!("{:?}", e);
+            std::process::exit(1);
+        }
+    }
+    if let Some(th) = theme_set.themes.get(&theme) {
+        // Don't know how performant this clone is but whatever
+        // Maybe just return theme names, and do the lookup in the main function?
+        th.clone()
+    } else {
+        eprintln!("Theme does not exist!");
+        std::process::exit(1);
+    }
 }
 
 fn get_syntax<'a>(
@@ -273,7 +314,16 @@ fn main() -> std::io::Result<()> {
 
     // Load the default syntax and theme sets.
     let syntax_set = SyntaxSet::load_defaults_newlines();
-    let theme_set = ThemeSet::load_defaults();
+    let mut theme_set = ThemeSet::load_defaults();
+    let theme = &get_theme(&mut theme_set, args.theme);
+
+    if args.list_themes {
+        println!("You can add more themes in the config directory!");
+        for (th, _) in theme_set.themes {
+            println!("{}", th);
+        }
+        std::process::exit(0);
+    }
 
     // Read the source code from a file.
     let code = fs::read_to_string(file.clone())?;
@@ -285,8 +335,6 @@ fn main() -> std::io::Result<()> {
     }
 
     let syntax = get_syntax(&syntax_set, file, args.language, lines[0]);
-
-    let theme = &theme_set.themes[&args.theme];
 
     // Use the theme's background color if defined; otherwise fallback to white.
     let bg_color = theme.settings.background.unwrap_or_else(|| Color {

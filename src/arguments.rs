@@ -29,6 +29,10 @@ pub struct Arguments {
     #[arg(long, default_value = "base16-mocha.dark")]
     pub theme: String,
 
+    /// List all available themes
+    #[arg(long)]
+    pub list_themes: bool,
+
     /// Set the font
     #[arg(long, default_value = "monospace")]
     pub font: String,
