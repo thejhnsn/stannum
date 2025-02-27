@@ -10,6 +10,12 @@ pub enum Decorations {
     None,
 }
 
+/// Default mono font
+#[cfg(target_os = "windows")]
+const DEFAULT_MONOSPACE: &str = "Consolas"; // Windows-specific monospace font
+#[cfg(not(target_os = "windows"))]
+const DEFAULT_MONOSPACE: &str = "monospace"; // Generic fallback for other OSes
+
 #[derive(Parser)]
 #[command(version, about = "Create vector images of your source code!", long_about = None)]
 pub struct Arguments {
@@ -34,7 +40,7 @@ pub struct Arguments {
     pub list_themes: bool,
 
     /// Set the font
-    #[arg(long, default_value = "monospace")]
+    #[arg(long, default_value = DEFAULT_MONOSPACE)]
     pub font: String,
 
     /// Turn on font embedding (-> font will be contained within the svg file)

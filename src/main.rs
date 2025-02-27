@@ -128,19 +128,26 @@ fn embed_font(font: Font, font_name: &str) -> Style {
     Style::new(font_face)
 }
 
-fn get_home_directory() -> Result<String, String> {
-    if cfg!(unix) {
+fn get_config_directory() -> Result<String, String> {
+    let home = if cfg!(unix) {
         std::env::var("HOME").map_err(|_| "Could not find home directory!".to_string())
     } else if cfg!(windows) {
         std::env::var("LOCALAPPDATA").map_err(|_| "Could not find home directory!".to_string())
     } else {
         Err("Unsupported operating system!".to_string())
-    }
+    };
+    home.map(|home| {
+        if cfg!(unix) {
+            format!("{}/.config/tin/themes/", home)
+        } else {
+            format!("{}\\tin\\themes\\", home)
+        }
+    })
 }
 
-fn get_theme(theme_set: &mut ThemeSet, theme: String) -> Theme {
+fn get_theme(theme_set: &mut ThemeSet, theme: &String) -> Theme {
     // Check whether theme name is a sublime syntax file or just a name
-    let theme_path = PathBuf::from(theme.clone());
+    let theme_path = PathBuf::from(theme);
     if let Some(extension) = theme_path.extension().and_then(OsStr::to_str) {
         if extension == "tmTheme" {
             // Return theme from file or exit on error
@@ -153,17 +160,12 @@ fn get_theme(theme_set: &mut ThemeSet, theme: String) -> Theme {
             }
         }
     }
-    let home = match get_home_directory() {
-        Ok(home) => home,
-        Err(err) => {
-            eprintln!("{}", err);
+    let config_dir = match get_config_directory() {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("{:?}", e);
             std::process::exit(1);
         }
-    };
-    let config_dir = if cfg!(unix) {
-        format!("{}{}", home, "/.config/tin/themes/")
-    } else {
-        format!("{}{}", home, "\\tin\\themes\\")
     };
     // check if directory exists, if not then create it
     if !PathBuf::from(&config_dir).exists() {
@@ -176,7 +178,7 @@ fn get_theme(theme_set: &mut ThemeSet, theme: String) -> Theme {
         eprintln!("{:?}", e);
         std::process::exit(1);
     }
-    if let Some(th) = theme_set.themes.get(&theme) {
+    if let Some(th) = theme_set.themes.get(theme) {
         // Don't know how performant this clone is but whatever
         // Maybe just return theme names, and do the lookup in the main function?
         th.clone()
@@ -332,7 +334,7 @@ fn main() -> std::io::Result<()> {
     // Load the default syntax and theme sets.
     let syntax_set = SyntaxSet::load_defaults_newlines();
     let mut theme_set = ThemeSet::load_defaults();
-    let theme = &get_theme(&mut theme_set, args.theme);
+    let theme = &get_theme(&mut theme_set, &args.theme);
 
     if args.list_themes {
         println!("You can add more themes in the config directory!");
