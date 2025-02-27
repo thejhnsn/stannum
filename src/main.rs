@@ -128,6 +128,16 @@ fn embed_font(font: Font, font_name: &str) -> Style {
     Style::new(font_face)
 }
 
+fn get_home_directory() -> Result<String, String> {
+    if cfg!(unix) {
+        std::env::var("HOME").map_err(|_| "Could not find home directory!".to_string())
+    } else if cfg!(windows) {
+        std::env::var("LOCALAPPDATA").map_err(|_| "Could not find home directory!".to_string())
+    } else {
+        Err("Unsupported operating system!".to_string())
+    }
+}
+
 fn get_theme(theme_set: &mut ThemeSet, theme: String) -> Theme {
     // Check whether theme name is a sublime syntax file or just a name
     let theme_path = PathBuf::from(theme.clone());
@@ -143,21 +153,28 @@ fn get_theme(theme_set: &mut ThemeSet, theme: String) -> Theme {
             }
         }
     }
-    if cfg!(unix) {
-        // FIXME: This is kind of wonky and won't work for windows...
-
-        // Try to add all themes found in the config directory
-        let home = if let Ok(home) = std::env::var("HOME") {
-            home
-        } else {
-            eprintln!("Could not find home directory!");
+    let home = match get_home_directory() {
+        Ok(home) => home,
+        Err(err) => {
+            eprintln!("{}", err);
             std::process::exit(1);
-        };
-        let config_dir = format!("{}{}", home, "/.config/tin/themes/");
-        if let Err(e) = theme_set.add_from_folder(config_dir) {
+        }
+    };
+    let config_dir = if cfg!(unix) {
+        format!("{}{}", home, "/.config/tin/themes/")
+    } else {
+        format!("{}{}", home, "\\tin\\themes\\")
+    };
+    // check if directory exists, if not then create it
+    if !PathBuf::from(&config_dir).exists() {
+        if let Err(e) = fs::create_dir_all(&config_dir) {
             eprintln!("{:?}", e);
             std::process::exit(1);
         }
+    }
+    if let Err(e) = theme_set.add_from_folder(config_dir) {
+        eprintln!("{:?}", e);
+        std::process::exit(1);
     }
     if let Some(th) = theme_set.themes.get(&theme) {
         // Don't know how performant this clone is but whatever
@@ -326,7 +343,13 @@ fn main() -> std::io::Result<()> {
     }
 
     // Read the source code from a file.
-    let code = fs::read_to_string(file.clone())?;
+    let code = match fs::read_to_string(&file) {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("Error reading file {}: {}", &file.display(), e);
+            std::process::exit(1);
+        }
+    };
     let lines: Vec<&str> = LinesWithEndings::from(&code).collect();
     let lines_of_code = lines.len();
     if lines_of_code < 1 {
