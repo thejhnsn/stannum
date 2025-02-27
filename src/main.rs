@@ -128,6 +128,30 @@ fn embed_font(font: Font, font_name: &str) -> Style {
     Style::new(font_face)
 }
 
+fn list_themes(theme_set: &mut ThemeSet) {
+    let config_dir = match get_config_directory() {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("{:?}", e);
+            std::process::exit(1);
+        }
+    };
+    if let Err(e) = theme_set.add_from_folder(&config_dir) {
+        eprintln!("{:?}", e);
+        std::process::exit(1);
+    }
+    println!("Available themes:");
+    // TODO: maybe sort themes alphabetically and format it using syntect's theme format
+    for (th, _) in &theme_set.themes {
+        println!("{}", th);
+    }
+    println!(
+        "You can add more themes in the config directory: {}",
+        &config_dir
+    );
+    std::process::exit(0);
+}
+
 fn get_config_directory() -> Result<String, String> {
     let home = if cfg!(unix) {
         std::env::var("HOME").map_err(|_| "Could not find home directory!".to_string())
@@ -305,7 +329,15 @@ fn rgb_to_hex(color: Color) -> String {
 
 fn main() -> std::io::Result<()> {
     let args = Arguments::parse();
-    let file = args.input;
+
+    // Load the default syntax and theme sets.
+    let syntax_set = SyntaxSet::load_defaults_newlines();
+    let mut theme_set = ThemeSet::load_defaults();
+    if args.list_themes {
+        list_themes(&mut theme_set);
+    }
+
+    let file = args.input.expect("This should never happen!");
     // Whether the image contains a shadow
     let shadow = !args.no_shadow;
 
@@ -331,9 +363,6 @@ fn main() -> std::io::Result<()> {
     let font_size = 14.0;
     let font_scale = font_size / font.metrics().units_per_em as f32;
 
-    // Load the default syntax and theme sets.
-    let syntax_set = SyntaxSet::load_defaults_newlines();
-    let mut theme_set = ThemeSet::load_defaults();
     let theme = &get_theme(&mut theme_set, &args.theme);
 
     if args.list_themes {

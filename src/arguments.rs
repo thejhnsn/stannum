@@ -20,7 +20,8 @@ const DEFAULT_MONOSPACE: &str = "monospace"; // Generic fallback for other OSes
 #[command(version, about = "Create vector images of your source code!", long_about = None)]
 pub struct Arguments {
     /// Set the path of the input file
-    pub input: PathBuf,
+    #[arg(required_unless_present = "list_themes")]
+    pub input: Option<PathBuf>,
 
     /// Set the path of the output file
     #[arg(short, long, default_value = "./out.svg")]
