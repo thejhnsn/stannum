@@ -365,14 +365,6 @@ fn main() -> std::io::Result<()> {
 
     let theme = &get_theme(&mut theme_set, &args.theme);
 
-    if args.list_themes {
-        println!("You can add more themes in the config directory!");
-        for (th, _) in theme_set.themes {
-            println!("{}", th);
-        }
-        std::process::exit(0);
-    }
-
     // Read the source code from a file.
     let code = match fs::read_to_string(&file) {
         Ok(code) => code,
