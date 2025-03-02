@@ -128,28 +128,81 @@ fn embed_font(font: Font, font_name: &str) -> Style {
     Style::new(font_face)
 }
 
-fn list_themes(theme_set: &mut ThemeSet) {
+fn list_themes(theme_set: &mut ThemeSet) -> std::io::Result<()> {
     let config_dir = match get_config_directory() {
         Ok(dir) => dir,
         Err(e) => {
             eprintln!("{:?}", e);
-            std::process::exit(1);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Could not find config directory!",
+            ));
         }
     };
     if let Err(e) = theme_set.add_from_folder(&config_dir) {
         eprintln!("{:?}", e);
-        std::process::exit(1);
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Could not load themes!",
+        ));
     }
+    let default_print = String::from_utf8_lossy(include_bytes!("../assets/hello_world.rs"));
+    // find the longest line in the default print and pad all lines to this length + 2
+    let longest_line = default_print
+        .lines()
+        .map(|line| line.len())
+        .max()
+        .unwrap_or_else(|| 80) // default to 80 if for some reason this fails
+        + 2;
+    let formatted_print = default_print
+        .lines()
+        .map(|line| format!("{:<width$}", line, width = longest_line))
+        .collect::<Vec<String>>()
+        .join("\n");
+
+    let mut theme_names_sorted: Vec<String> = theme_set.themes.keys().cloned().collect();
+    theme_names_sorted.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    let syntax_set = SyntaxSet::load_defaults_newlines();
+    let syntax = syntax_set
+        .find_syntax_by_extension("rs")
+        .expect("Error while listing themes!");
+
     println!("Available themes:");
-    // TODO: maybe sort themes alphabetically and format it using syntect's theme format
-    for (th, _) in &theme_set.themes {
-        println!("{}", th);
+    for name in theme_names_sorted {
+        println!("{}", name);
+        let mut highlighter: HighlightLines = HighlightLines::new(
+            &syntax,
+            &theme_set
+                .themes
+                .get(&name)
+                .expect("This should never happen."),
+        );
+        let regions = highlighter
+            .highlight_line(&formatted_print, &syntax_set)
+            .expect("Error while listing themes!");
+        for (region_style, region_text) in regions {
+            // set correct background color
+            print!(
+                "\x1b[48;2;{};{};{}m",
+                region_style.background.r, region_style.background.g, region_style.background.b
+            );
+            print!(
+                "\x1b[38;2;{};{};{}m{}\x1b[0m",
+                region_style.foreground.r,
+                region_style.foreground.g,
+                region_style.foreground.b,
+                region_text
+            );
+        }
+        // reset background color
+        print!("\x1b[0m\n\n");
     }
+
     println!(
         "You can add more themes in the config directory: {}",
         &config_dir
     );
-    std::process::exit(0);
+    Ok(())
 }
 
 fn get_config_directory() -> Result<String, String> {
@@ -334,7 +387,7 @@ fn main() -> std::io::Result<()> {
     let syntax_set = SyntaxSet::load_defaults_newlines();
     let mut theme_set = ThemeSet::load_defaults();
     if args.list_themes {
-        list_themes(&mut theme_set);
+        return list_themes(&mut theme_set);
     }
 
     let file = args.input.expect("This should never happen!");
