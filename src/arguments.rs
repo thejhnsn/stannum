@@ -209,6 +209,9 @@ pub fn parse_line_columns(value: &str) -> Result<Vec<(usize, usize, usize)>, Str
         let second = temp[1];
         let third = temp[2];
 
+        if second == 0 {
+            return Err("Column ranges cannot start with 0!".to_string());
+        }
         if third < second {
             return Err("Invalid column range!".to_string());
         }

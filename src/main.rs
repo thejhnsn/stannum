@@ -405,6 +405,19 @@ fn yuv_to_rgb(y: f64, u: f64, v: f64) -> Color {
     }
 }
 
+fn get_text_width(font: Font, font_scale: f32, text: &str) -> f32 {
+    text.chars()
+        .filter_map(|ch| {
+            font.glyph_for_char(ch)
+                .map(|glyph_id| {
+                    let advance = font.advance(glyph_id).ok()?;
+                    Some(advance.x() * font_scale)
+                })
+                .flatten()
+        })
+        .sum()
+}
+
 fn main() -> std::io::Result<()> {
     let args = Arguments::parse();
 
@@ -552,6 +565,11 @@ fn main() -> std::io::Result<()> {
         .unwrap_or(vec![])
         .into_iter()
         .peekable();
+    let mut highlighted_cols_iter = args
+        .highlight_columns
+        .unwrap_or(vec![])
+        .into_iter()
+        .peekable();
     let mut highlight_group = Group::new();
 
     let mut prev_line_number = 0;
@@ -612,17 +630,7 @@ fn main() -> std::io::Result<()> {
         // Calculate the width of the current line.
         // This is only an approximation, as every svg renderer may render text slightly differently.
         // TODO: fallback to line height if width is not available (e.g. for unknown characters in unicode)
-        let width: f32 = line
-            .chars()
-            .filter_map(|ch| {
-                font.glyph_for_char(ch)
-                    .map(|glyph_id| {
-                        let advance = font.advance(glyph_id).ok()?;
-                        Some(advance.x() * font_scale)
-                    })
-                    .flatten()
-            })
-            .sum();
+        let width = get_text_width(font.clone(), font_scale, line);
 
         // Create highlighted background for lines in highlighted_lines_iter
         // FIXME: This somewhat depends on the line height... needs to be adjusted if line height
@@ -654,6 +662,27 @@ fn main() -> std::io::Result<()> {
                         highlight_group = highlight_group.add(highlight_rect);
                     }
                 }
+            }
+        }
+        // TODO: Add runtime check to reject invalid end columns (to long for current line)
+        while let Some(&(line_number_highlighted, start_column, end_conlumn)) =
+            highlighted_cols_iter.peek()
+        {
+            if line_number_highlighted == line_number {
+                let _ = highlighted_cols_iter.next();
+                let column_start_offset =
+                    get_text_width(font.clone(), font_scale, &line[0..start_column - 1]);
+                let column_end_offset =
+                    get_text_width(font.clone(), font_scale, &line[0..end_conlumn]);
+                let highlight_rect = Rectangle::new()
+                    .set("x", 20.0 + line_number_offset + column_start_offset)
+                    .set("y", current_y - line_height as f32 + 4.0)
+                    .set("width", column_end_offset - column_start_offset)
+                    .set("height", line_height)
+                    .set("fill", highlight_color.clone());
+                highlight_group = highlight_group.add(highlight_rect);
+            } else {
+                break;
             }
         }
 
