@@ -10,6 +10,13 @@ pub enum Decorations {
     None,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+pub enum HighlightMode {
+    Full,
+    Fit,
+    AlignRight,
+}
+
 /// Default mono font
 #[cfg(target_os = "windows")]
 const DEFAULT_MONOSPACE: &str = "Consolas"; // Windows-specific monospace font
@@ -58,11 +65,24 @@ pub struct Arguments {
     #[arg(long, value_parser = parse_lines)]
     pub lines: Option<std::vec::Vec<usize>>,
 
+    /// Set the color used for highlighting lines/columns. Provided as a hex color string or css
+    /// color code (can also include alpha value, e.g. #FFFFFF33). Per default based on the background
+    /// color of the theme
+    #[arg(long)]
+    pub highlight_color: Option<String>,
+
     /// Set which lines to highlight in the image.
     /// Specified as a comma seperated list and/or as a range of lines.
     /// Example: 1,2,5-20, highlights line 1, 2, and 5 to 20.
     #[arg(long, value_parser = parse_lines)]
     pub highlight_lines: Option<std::vec::Vec<usize>>,
+
+    /// Set the highlight mode used for highlighting lines. full: highlight the whole line within
+    /// the rectangle, align-right: from the start of the line to the end of the line extending the
+    /// furthest in the image, fit: only highlight visible text on the line (including spaces
+    /// between words)
+    #[arg(long, value_enum, default_value = "fit")]
+    pub highlight_mode: HighlightMode,
 
     /// Set which column range to highlight within a given line.
     /// Specified as a semicolon seperated list of triples (#line, #column_start, #column_end).

@@ -11,7 +11,7 @@ use std::fs;
 use std::path::PathBuf;
 use svg::node::element::{
     Circle, Definitions, Filter, FilterEffectDropShadow, FilterEffectOffset, Group, Line,
-    Rectangle, Style, TSpan, Text,
+    Rectangle, Style, TSpan, Text, Use,
 };
 use svg::node::element::{FilterEffectComposite, FilterEffectFlood, FilterEffectGaussianBlur};
 use svg::node::Blob;
@@ -20,7 +20,7 @@ use syntect::easy::HighlightLines;
 use syntect::highlighting::{Color, Theme, ThemeSet};
 use syntect::parsing::{SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
-use tin::arguments::{Arguments, Decorations};
+use tin::arguments::{Arguments, Decorations, HighlightMode};
 
 fn add_window_buttons(window_decorations: Decorations, width: f32, font_color: Color) -> Group {
     match window_decorations {
@@ -377,7 +377,32 @@ fn get_bounding_box(
 
 // Utility function to convert a syntect Color to a HEX string.
 fn rgb_to_hex(color: Color) -> String {
-    format!("#{:02X}{:02X}{:02X}", color.r, color.g, color.b)
+    format!(
+        "#{:02X}{:02X}{:02X}{:02X}",
+        color.r, color.g, color.b, color.a
+    )
+}
+
+fn rgb_to_yuv(color: Color) -> (f64, f64, f64) {
+    let red = color.r as f64 / 255.0;
+    let green = color.g as f64 / 255.0;
+    let blue = color.b as f64 / 255.0;
+    let y = 0.299 * red + 0.587 * green + 0.114 * blue;
+    let u = -0.14713 * red - 0.28886 * green + 0.436 * blue;
+    let v = 0.615 * red - 0.51499 * green - 0.10001 * blue;
+    (y, u, v)
+}
+
+fn yuv_to_rgb(y: f64, u: f64, v: f64) -> Color {
+    let red = ((y + 1.13983 * v) * 255.0) as u8;
+    let green = ((y - 0.39465 * u - 0.5806 * v) * 255.0) as u8;
+    let blue = ((y + 2.03211 * u) * 255.0) as u8;
+    Color {
+        r: red,
+        g: green,
+        b: blue,
+        a: 255,
+    }
 }
 
 fn main() -> std::io::Result<()> {
@@ -444,6 +469,17 @@ fn main() -> std::io::Result<()> {
     });
     let bg_fill = rgb_to_hex(bg_color);
 
+    // Define the color to use for highlighting
+    let highlight_color = if let Some(hex) = args.highlight_color {
+        hex
+    } else {
+        let (y, u, v) = rgb_to_yuv(bg_color);
+        let modified_y = 1.0 - y * y;
+        let mut modified_color = yuv_to_rgb(modified_y, u, v);
+        modified_color.a = 50;
+        rgb_to_hex(modified_color)
+    };
+
     // TODO: Should probably not be hardcoded, adjust this according to the shadow offset and
     // blur...
     // Prepare the overall text element. Provide an empty string as initial content.
@@ -493,6 +529,30 @@ fn main() -> std::io::Result<()> {
         }
         selected_lines_iter = sel_lines.into_iter()
     }
+
+    // INFO: Just some estimations on how much space the line numbers are going to take up
+    let width_space_char =
+        font.advance(
+            font.glyph_for_char(' ')
+                .expect("Cannot find glyph_id for ' '"),
+        )
+        .expect("Cannot find advance for ' '")
+        .x() * font_scale;
+    // FIXME: For non monospaced fonts
+    // Also if the two spaces after the line number ever get changed this needs to be adjusted
+    // aswell
+    let line_number_offset = if line_numbers {
+        width_space_char * (2 + line_number_width) as f32
+    } else {
+        0.0
+    };
+
+    let mut highlighted_lines_iter = args
+        .highlight_lines
+        .unwrap_or(vec![])
+        .into_iter()
+        .peekable();
+    let mut highlight_group = Group::new();
 
     let mut prev_line_number = 0;
     for line_number in selected_lines_iter {
@@ -564,11 +624,45 @@ fn main() -> std::io::Result<()> {
             })
             .sum();
 
+        // Create highlighted background for lines in highlighted_lines_iter
+        // FIXME: This somewhat depends on the line height... needs to be adjusted if line height
+        // is no longer hardcoded...
+        if let Some(&line_number_highlighted) = highlighted_lines_iter.peek() {
+            if line_number_highlighted == line_number {
+                let _ = highlighted_lines_iter.next();
+                match args.highlight_mode {
+                    HighlightMode::Fit => {
+                        // FIXME: Not pretty... don't know whether there is actually a better way
+                        // to do this though
+                        let code_start_x: f32 =
+                            line.chars().take_while(|c| c.is_whitespace()).count() as f32
+                                * width_space_char;
+                        let highlight_rect = Rectangle::new()
+                            .set("x", 20.0 + code_start_x + line_number_offset)
+                            .set("y", current_y - line_height as f32 + 4.0)
+                            .set("width", width - code_start_x)
+                            .set("height", line_height)
+                            .set("fill", highlight_color.clone());
+                        highlight_group = highlight_group.add(highlight_rect);
+                    }
+                    HighlightMode::AlignRight | HighlightMode::Full => {
+                        // NOTE: We set "x" in the defs, since the x values are the same across all
+                        // highlights for these two modes
+                        let highlight_rect = Use::new()
+                            .set("y", current_y - line_height as f32 + 4.0)
+                            .set("href", "#highlightRect");
+                        highlight_group = highlight_group.add(highlight_rect);
+                    }
+                }
+            }
+        }
+
         if current_x < width {
             current_x = width;
         }
         current_y += line_height as f32;
     }
+    let saved_current_x = current_x;
     // two times because of padding on both sides
     // FIXME: somehow there's a little bit more space on the right side...
     current_x += 2.0 * side_padding;
@@ -585,6 +679,23 @@ fn main() -> std::io::Result<()> {
         args.composite_shadow,
     );
     let mut defs = Definitions::new().add(shadow_filter);
+    let mut highlight_rect = Rectangle::new()
+        .set("id", "highlightRect")
+        .set("height", line_height)
+        .set("fill", highlight_color.clone());
+    match args.highlight_mode {
+        HighlightMode::Full => {
+            highlight_rect = highlight_rect.set("width", current_x).set("x", 0);
+            defs = defs.add(highlight_rect);
+        }
+        HighlightMode::AlignRight => {
+            highlight_rect = highlight_rect
+                .set("width", saved_current_x)
+                .set("x", 20.0 + line_number_offset);
+            defs = defs.add(highlight_rect);
+        }
+        _ => {}
+    }
     let style = if shadow { "filter:url(#shadow)" } else { "" };
     // Embed the font if requested.
     if args.embed_font {
@@ -614,6 +725,7 @@ fn main() -> std::io::Result<()> {
         .set("viewBox", bounding_box)
         .add(defs)
         .add(background)
+        .add(highlight_group)
         .add(text_elem);
     // Add window title if provided
     if args.window_title != None {
