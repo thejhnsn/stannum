@@ -55,6 +55,10 @@ pub struct Arguments {
     #[arg(long)]
     pub embed_font: bool,
 
+    /// Set the line spacing
+    #[arg(long, default_value_t = 4.0)]
+    pub line_spacing: f32,
+
     /// Turn on line numbers
     #[arg(long)]
     pub line_numbers: bool,

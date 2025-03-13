@@ -22,6 +22,8 @@ use syntect::parsing::{SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
 use tin::arguments::{Arguments, Decorations, HighlightMode};
 
+const DEFAULT_FONT_SIZE: f32 = 14.0;
+
 fn add_window_buttons(window_decorations: Decorations, width: f32, font_color: Color) -> Group {
     match window_decorations {
         Decorations::MacOS => {
@@ -451,7 +453,7 @@ fn main() -> std::io::Result<()> {
             std::process::exit(1);
         }
     };
-    let font_size = 14.0;
+    let font_size = DEFAULT_FONT_SIZE;
     let font_scale = font_size / font.metrics().units_per_em as f32;
 
     let theme = &get_theme(&mut theme_set, &args.theme);
@@ -509,7 +511,7 @@ fn main() -> std::io::Result<()> {
 
     // Define the line height in pixels.
     // FIXME: magic numbers
-    let line_height = 18;
+    let line_height = font_size + args.line_spacing;
     let side_padding = 20.0;
     let mut current_x = 0.0;
     let mut current_y = 20.0 + 30.0;
@@ -586,7 +588,7 @@ fn main() -> std::io::Result<()> {
                 .set("x", 20)
                 .set("y", current_y)
                 .set("fill", rgb_to_hex(default_text_color));
-            current_y += line_height as f32;
+            current_y += line_height;
             text_elem = text_elem.add(dots);
             // We need to feed the highlighter every line, otherwise some colors may be incorrect
             for skipped_line in (prev_line_number + 1)..line_number {
@@ -647,9 +649,9 @@ fn main() -> std::io::Result<()> {
                                 * width_space_char;
                         let highlight_rect = Rectangle::new()
                             .set("x", 20.0 + code_start_x + line_number_offset)
-                            .set("y", current_y - line_height as f32 + 4.0)
+                            .set("y", current_y - font_size)
                             .set("width", width - code_start_x)
-                            .set("height", line_height)
+                            .set("height", font_size + 4.0)
                             .set("fill", highlight_color.clone());
                         highlight_group = highlight_group.add(highlight_rect);
                     }
@@ -657,7 +659,11 @@ fn main() -> std::io::Result<()> {
                         // NOTE: We set "x" in the defs, since the x values are the same across all
                         // highlights for these two modes
                         let highlight_rect = Use::new()
-                            .set("y", current_y - line_height as f32 + 4.0)
+                            .set(
+                                "y",
+                                current_y - font_size
+                                    + (if args.line_spacing == 0.0 { 3.0 } else { 0.0 }), // FIXME: this is a very hacky way to center the highlight rect when line_spacing is 0 and highlight mode is align right or full...
+                            )
                             .set("href", "#highlightRect");
                         highlight_group = highlight_group.add(highlight_rect);
                     }
@@ -676,7 +682,7 @@ fn main() -> std::io::Result<()> {
                     get_text_width(font.clone(), font_scale, &line[0..end_conlumn]);
                 let highlight_rect = Rectangle::new()
                     .set("x", 20.0 + line_number_offset + column_start_offset)
-                    .set("y", current_y - line_height as f32 + 4.0)
+                    .set("y", current_y - line_height + 4.0)
                     .set("width", column_end_offset - column_start_offset)
                     .set("height", line_height)
                     .set("fill", highlight_color.clone());
@@ -689,7 +695,7 @@ fn main() -> std::io::Result<()> {
         if current_x < width {
             current_x = width;
         }
-        current_y += line_height as f32;
+        current_y += line_height;
     }
     let saved_current_x = current_x;
     // two times because of padding on both sides
