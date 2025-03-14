@@ -1,0 +1,23 @@
+<svg viewBox="0 0 804 108" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<filter id="shadow">
+<feDropShadow dx="4" dy="4" flood-color="#444444" flood-opacity="0.5" stdDeviation="1"/>
+</filter>
+</defs>
+<rect fill="#2B303BFF" height="104" rx="8" ry="8" style="filter:url(#shadow)" width="800" x="0" y="0"/>
+<g/>
+<text fill="black" font-family="monospace, monospace" font-size="14" x="20" xml:space="preserve" y="20">
+
+<tspan x="20" y="50"><tspan fill="#B48EADFF">fn</tspan><tspan fill="#C0C5CEFF"> </tspan><tspan fill="#8FA1B3FF">main</tspan><tspan fill="#C0C5CEFF">(</tspan><tspan fill="#C0C5CEFF">)</tspan><tspan fill="#C0C5CEFF"> </tspan><tspan fill="#C0C5CEFF">{</tspan><tspan fill="#C0C5CEFF">
+</tspan></tspan>
+<tspan x="20" y="68"><tspan fill="#C0C5CEFF">    </tspan><tspan fill="#C0C5CEFF">println!</tspan><tspan fill="#C0C5CEFF">(</tspan><tspan fill="#C0C5CEFF">"</tspan><tspan fill="#A3BE8CFF">Hello, world!</tspan><tspan fill="#C0C5CEFF">"</tspan><tspan fill="#C0C5CEFF">)</tspan><tspan fill="#C0C5CEFF">;</tspan><tspan fill="#C0C5CEFF">
+</tspan></tspan>
+<tspan x="20" y="86"><tspan fill="#C0C5CEFF">}</tspan><tspan fill="#C0C5CEFF">
+</tspan></tspan>
+</text>
+<g>
+<circle cx="15" cy="15" fill="#ff605c" r="6"/>
+<circle cx="35" cy="15" fill="#ffbd44" r="6"/>
+<circle cx="55" cy="15" fill="#00ca4e" r="6"/>
+</g>
+</svg>
