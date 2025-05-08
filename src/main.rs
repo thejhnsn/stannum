@@ -1,424 +1,25 @@
 extern crate svg;
 extern crate syntect;
 
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 use clap::Parser;
 use font_kit::family_name::FamilyName;
-use font_kit::font::Font;
 use font_kit::source::SystemSource;
-use std::ffi::OsStr;
 use std::fs;
-use std::path::PathBuf;
-use svg::node::element::{
-    Circle, Definitions, Filter, FilterEffectDropShadow, FilterEffectOffset, Group, Line,
-    Rectangle, Style, TSpan, Text, Use,
-};
-use svg::node::element::{FilterEffectComposite, FilterEffectFlood, FilterEffectGaussianBlur};
+use svg::node::element::{Definitions, Group, Rectangle, TSpan, Text, Use};
 use svg::node::Blob;
 use svg::Document;
 use syntect::easy::HighlightLines;
-use syntect::highlighting::{Color, Theme, ThemeSet};
-use syntect::parsing::{SyntaxReference, SyntaxSet};
+use syntect::highlighting::{Color, ThemeSet};
+use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 use tin::arguments::{Arguments, Decorations, HighlightMode};
+use tin::components::{
+    add_window_buttons, add_window_title, embed_font, get_bounding_box, get_shadow, get_text_width,
+};
+use tin::config::{get_syntax, get_theme, list_themes};
+use tin::util::{rgb_to_hex, rgb_to_yuv, yuv_to_rgb};
 
 const DEFAULT_FONT_SIZE: f32 = 14.0;
-
-fn add_window_buttons(window_decorations: Decorations, width: f32, font_color: Color) -> Group {
-    match window_decorations {
-        Decorations::MacOS => {
-            let circle_close = Circle::new()
-                .set("cx", 15)
-                .set("cy", 15)
-                .set("r", 6)
-                .set("fill", "#ff605c"); // red
-            let circle_minimize = Circle::new()
-                .set("cx", 35)
-                .set("cy", 15)
-                .set("r", 6)
-                .set("fill", "#ffbd44"); // yellow
-            let circle_zoom = Circle::new()
-                .set("cx", 55)
-                .set("cy", 15)
-                .set("r", 6)
-                .set("fill", "#00ca4e"); // green
-            Group::new()
-                .add(circle_close)
-                .add(circle_minimize)
-                .add(circle_zoom)
-        }
-        Decorations::Windows => {
-            let padding = 15.0;
-            let length = 10.0;
-            let center_x = width - padding;
-            let center_y = padding;
-            let minimize = Line::new()
-                // the line starts at (start of the maximize button) - padding - length
-                // -> rect_x - length - padding
-                // and it ends at the same x position + length
-                .set("x1", center_x - 2.5 * length - 2.0 * padding)
-                .set("y1", 15)
-                .set("x2", center_x - 1.5 * length - 2.0 * padding)
-                .set("y2", 15)
-                .set("stroke", rgb_to_hex(font_color))
-                .set("stroke-width", 2);
-            let maximize = Rectangle::new()
-                // the rectangle starts at (start of the minimize button) - padding - length
-                // -> close_x1 - length - padding
-                .set("x", center_x - 1.5 * length - padding)
-                .set("y", 10)
-                .set("rx", 2)
-                .set("ry", 2)
-                .set("width", 10)
-                .set("height", 10)
-                .set("fill", "none")
-                .set("stroke", rgb_to_hex(font_color))
-                .set("stroke-width", 2);
-            // calculate start and end points for the close button
-            let close_line1 = Line::new()
-                .set("x1", center_x - length / 2.0)
-                .set("y1", center_y - length / 2.0)
-                .set("x2", center_x + length / 2.0)
-                .set("y2", center_y + length / 2.0)
-                .set("stroke", rgb_to_hex(font_color))
-                .set("stroke-width", 2);
-            let close_line2 = Line::new()
-                .set("x1", center_x - length / 2.0)
-                .set("y1", center_y + length / 2.0)
-                .set("x2", center_x + length / 2.0)
-                .set("y2", center_y - length / 2.0)
-                .set("stroke", rgb_to_hex(font_color))
-                .set("stroke-width", 2);
-            Group::new()
-                .add(minimize)
-                .add(maximize)
-                .add(close_line1)
-                .add(close_line2)
-        }
-        _ => panic!("This should never happen..."),
-    }
-}
-
-fn add_window_title(window_title: &str, font: &str, font_color: Color, rect_width: f32) -> Text {
-    let header_text = Text::new(window_title)
-        .set("x", rect_width / 2.0)
-        .set("y", 15)
-        .set("dominant-baseline", "middle")
-        .set("text-anchor", "middle")
-        .set("font-family", font)
-        .set("font-size", 14)
-        .set("font-weight", "bold")
-        .set("fill", rgb_to_hex(font_color));
-    header_text
-}
-
-fn embed_font(font: Font, font_name: &str) -> Style {
-    let font_bytes = font
-        .copy_font_data()
-        .expect("Failed to embed font")
-        .to_vec();
-    let base64_font = STANDARD.encode(&font_bytes);
-    let font_face = format!(
-        r#"
-        @font-face {{
-            font-family: '{}';
-            src: url(data:font/woff2;base64,{}) format('woff2');
-        }}
-        "#,
-        font_name, base64_font
-    );
-    Style::new(font_face)
-}
-
-fn list_themes(theme_set: &mut ThemeSet) -> std::io::Result<()> {
-    let config_dir = match get_config_directory() {
-        Ok(dir) => dir,
-        Err(e) => {
-            eprintln!("{:?}", e);
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Could not find config directory!",
-            ));
-        }
-    };
-    if let Err(e) = theme_set.add_from_folder(&config_dir) {
-        eprintln!("{:?}", e);
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "Could not load themes!",
-        ));
-    }
-    let default_print = String::from_utf8_lossy(include_bytes!("../assets/hello_world.rs"));
-    // find the longest line in the default print and pad all lines to this length + 2
-    let longest_line = default_print
-        .lines()
-        .map(|line| line.len())
-        .max()
-        .unwrap_or_else(|| 80) // default to 80 if for some reason this fails
-        + 2;
-    let formatted_print = default_print
-        .lines()
-        .map(|line| format!("{:<width$}", line, width = longest_line))
-        .collect::<Vec<String>>()
-        .join("\n");
-
-    let mut theme_names_sorted: Vec<String> = theme_set.themes.keys().cloned().collect();
-    theme_names_sorted.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
-    let syntax_set = SyntaxSet::load_defaults_newlines();
-    let syntax = syntax_set
-        .find_syntax_by_extension("rs")
-        .expect("Error while listing themes!");
-
-    println!("Available themes:");
-    for name in theme_names_sorted {
-        println!("{}", name);
-        let mut highlighter: HighlightLines = HighlightLines::new(
-            &syntax,
-            &theme_set
-                .themes
-                .get(&name)
-                .expect("This should never happen."),
-        );
-        let regions = highlighter
-            .highlight_line(&formatted_print, &syntax_set)
-            .expect("Error while listing themes!");
-        for (region_style, region_text) in regions {
-            // set correct background color
-            print!(
-                "\x1b[48;2;{};{};{}m",
-                region_style.background.r, region_style.background.g, region_style.background.b
-            );
-            print!(
-                "\x1b[38;2;{};{};{}m{}\x1b[0m",
-                region_style.foreground.r,
-                region_style.foreground.g,
-                region_style.foreground.b,
-                region_text
-            );
-        }
-        // reset background color
-        print!("\x1b[0m\n\n");
-    }
-
-    println!(
-        "You can add more themes in the config directory: {}",
-        &config_dir
-    );
-    Ok(())
-}
-
-fn get_config_directory() -> Result<String, String> {
-    let home = if cfg!(unix) {
-        std::env::var("HOME").map_err(|_| "Could not find home directory!".to_string())
-    } else if cfg!(windows) {
-        std::env::var("LOCALAPPDATA").map_err(|_| "Could not find home directory!".to_string())
-    } else {
-        Err("Unsupported operating system!".to_string())
-    };
-    home.map(|home| {
-        if cfg!(unix) {
-            format!("{}/.config/tin/themes/", home)
-        } else {
-            format!("{}\\tin\\themes\\", home)
-        }
-    })
-}
-
-fn get_theme(theme_set: &mut ThemeSet, theme: &String) -> Theme {
-    // Check whether theme name is a sublime syntax file or just a name
-    let theme_path = PathBuf::from(theme);
-    if let Some(extension) = theme_path.extension().and_then(OsStr::to_str) {
-        if extension == "tmTheme" {
-            // Return theme from file or exit on error
-            match ThemeSet::get_theme(theme_path) {
-                Ok(th) => return th,
-                Err(_) => {
-                    eprintln!("Something went wrong while loading the supplied theme!");
-                    std::process::exit(1);
-                }
-            }
-        }
-    }
-    let config_dir = match get_config_directory() {
-        Ok(dir) => dir,
-        Err(e) => {
-            eprintln!("{:?}", e);
-            std::process::exit(1);
-        }
-    };
-    // check if directory exists, if not then create it
-    if !PathBuf::from(&config_dir).exists() {
-        if let Err(e) = fs::create_dir_all(&config_dir) {
-            eprintln!("{:?}", e);
-            std::process::exit(1);
-        }
-    }
-    if let Err(e) = theme_set.add_from_folder(config_dir) {
-        eprintln!("{:?}", e);
-        std::process::exit(1);
-    }
-    if let Some(th) = theme_set.themes.get(theme) {
-        // Don't know how performant this clone is but whatever
-        // Maybe just return theme names, and do the lookup in the main function?
-        th.clone()
-    } else {
-        eprintln!("Theme does not exist!");
-        std::process::exit(1);
-    }
-}
-
-fn get_syntax<'a>(
-    syntax_set: &'a SyntaxSet,
-    file: PathBuf,
-    language: Option<String>,
-    first_line: &str,
-) -> &'a SyntaxReference {
-    let file_extension = if let Some(lang) = language {
-        lang
-    } else if let Some(extension) = file.extension().and_then(OsStr::to_str) {
-        extension.to_string()
-    } else {
-        "".to_string()
-    };
-
-    // Choose syntax based on language name/file extension/first line of the file
-    let syntax = if let Some(syn_ext) = syntax_set.find_syntax_by_extension(&file_extension) {
-        syn_ext
-    } else {
-        if let Some(syn_name) = syntax_set.find_syntax_by_name(&file_extension) {
-            syn_name
-        } else if let Some(shebang) = syntax_set.find_syntax_by_first_line(first_line) {
-            shebang
-        } else {
-            syntax_set.find_syntax_plain_text()
-        }
-    };
-    syntax
-}
-
-fn get_shadow(
-    shadow_blur: f32,
-    shadow_color: String,
-    shadow_opacity: f32,
-    shadow_offset_x: f32,
-    shadow_offset_y: f32,
-    composite_shadow: bool,
-) -> Filter {
-    if composite_shadow {
-        let flood = FilterEffectFlood::new()
-            .set("result", "flood")
-            .set("in", "SourceGraphic")
-            .set("flood-opacity", shadow_opacity)
-            .set("flood-color", shadow_color);
-        let blur = FilterEffectGaussianBlur::new()
-            .set("result", "blur")
-            .set("in", "SourceGraphic")
-            .set("stdDeviation", shadow_blur);
-        let offset = FilterEffectOffset::new()
-            .set("result", "offset")
-            .set("in", "blur")
-            .set("dx", shadow_offset_x)
-            .set("dy", shadow_offset_y);
-        let comp1 = FilterEffectComposite::new()
-            .set("result", "comp1")
-            .set("operator", "in")
-            .set("in", "flood")
-            .set("in2", "offset");
-        let comp2 = FilterEffectComposite::new()
-            .set("in", "SourceGraphic")
-            .set("in2", "comp1");
-        Filter::new()
-            .set("id", "shadow")
-            .add(flood)
-            .add(blur)
-            .add(offset)
-            .add(comp1)
-            .add(comp2)
-    } else {
-        let shadow = FilterEffectDropShadow::new()
-            .set("stdDeviation", shadow_blur)
-            .set("flood-color", shadow_color)
-            .set("flood-opacity", shadow_opacity)
-            .set("dx", shadow_offset_x)
-            .set("dy", shadow_offset_y);
-        Filter::new().set("id", "shadow").add(shadow)
-    }
-}
-
-fn get_bounding_box(
-    shadow: bool,
-    shadow_offset_x: f32,
-    shadow_offset_y: f32,
-    mut current_x: f32,
-    mut current_y: f32,
-) -> (f32, f32, f32, f32) {
-    // FIXME: I don't really how to calculate this properly, seems to be clipping/cutoff no matter
-    // how large the viebox is (e.g. using a value of 10 for the shadow blur)
-    // May also just be implementation defined (maybe some svg renderer renders this correctly???)
-    // To large/small offsets also cause clipping adjusting the viewbox doesn't help here either
-
-    // Adjust the viewbox to also fit the shadow
-    if shadow {
-        let start_x = if shadow_offset_x < 0.0 {
-            shadow_offset_x
-        } else {
-            0.0
-        };
-        let start_y = if shadow_offset_y < 0.0 {
-            shadow_offset_y
-        } else {
-            0.0
-        };
-        current_x += shadow_offset_x.abs();
-        current_y += shadow_offset_y.abs();
-        (start_x, start_y, current_x, current_y)
-    } else {
-        (0.0, 0.0, current_x, current_y)
-    }
-}
-
-// Utility function to convert a syntect Color to a HEX string.
-fn rgb_to_hex(color: Color) -> String {
-    format!(
-        "#{:02X}{:02X}{:02X}{:02X}",
-        color.r, color.g, color.b, color.a
-    )
-}
-
-fn rgb_to_yuv(color: Color) -> (f64, f64, f64) {
-    let red = color.r as f64 / 255.0;
-    let green = color.g as f64 / 255.0;
-    let blue = color.b as f64 / 255.0;
-    let y = 0.299 * red + 0.587 * green + 0.114 * blue;
-    let u = -0.14713 * red - 0.28886 * green + 0.436 * blue;
-    let v = 0.615 * red - 0.51499 * green - 0.10001 * blue;
-    (y, u, v)
-}
-
-fn yuv_to_rgb(y: f64, u: f64, v: f64) -> Color {
-    let red = ((y + 1.13983 * v) * 255.0) as u8;
-    let green = ((y - 0.39465 * u - 0.5806 * v) * 255.0) as u8;
-    let blue = ((y + 2.03211 * u) * 255.0) as u8;
-    Color {
-        r: red,
-        g: green,
-        b: blue,
-        a: 255,
-    }
-}
-
-fn get_text_width(font: Font, font_scale: f32, text: &str) -> f32 {
-    text.chars()
-        .filter_map(|ch| {
-            font.glyph_for_char(ch)
-                .map(|glyph_id| {
-                    let advance = font.advance(glyph_id).ok()?;
-                    Some(advance.x() * font_scale)
-                })
-                .flatten()
-        })
-        .sum()
-}
 
 fn main() -> std::io::Result<()> {
     let args = Arguments::parse();
@@ -555,7 +156,7 @@ fn main() -> std::io::Result<()> {
         .x() * font_scale;
     // FIXME: For non monospaced fonts
     // Also if the two spaces after the line number ever get changed this needs to be adjusted
-    // aswell
+    // as well
     let line_number_offset = if line_numbers {
         width_space_char * (2 + line_number_width) as f32
     } else {
@@ -671,7 +272,7 @@ fn main() -> std::io::Result<()> {
             }
         }
         // TODO: Add runtime check to reject invalid end columns (to long for current line)
-        while let Some(&(line_number_highlighted, start_column, end_conlumn)) =
+        while let Some(&(line_number_highlighted, start_column, end_column)) =
             highlighted_cols_iter.peek()
         {
             if line_number_highlighted == line_number {
@@ -679,7 +280,7 @@ fn main() -> std::io::Result<()> {
                 let column_start_offset =
                     get_text_width(font.clone(), font_scale, &line[0..start_column - 1]);
                 let column_end_offset =
-                    get_text_width(font.clone(), font_scale, &line[0..end_conlumn]);
+                    get_text_width(font.clone(), font_scale, &line[0..end_column]);
                 let highlight_rect = Rectangle::new()
                     .set("x", 20.0 + line_number_offset + column_start_offset)
                     .set("y", current_y - line_height + 4.0)
