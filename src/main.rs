@@ -118,16 +118,11 @@ fn main() -> std::io::Result<()> {
 
     // check if window title and decorations are enabled, if yes then move the text down by 30.0
     let window_bar_exists = if let Some(window_title) = &args.window_title {
-        !window_title.is_empty() || args.window_decorations != Decorations::None
+        !window_title.is_empty()
     } else {
         false
-    };
-    let mut current_y = 20.0 +
-        if window_bar_exists {
-            30.0
-        } else {
-            0.0
-        };
+    } || args.window_decorations != Decorations::None;
+    let mut current_y = 20.0 + if window_bar_exists { 30.0 } else { 0.0 };
     let line_numbers = args.line_numbers;
     // If line numbers are enabled, calculate the width of the line number column.
     let line_number_width = if line_numbers {
@@ -164,8 +159,8 @@ fn main() -> std::io::Result<()> {
             font.glyph_for_char(' ')
                 .expect("Cannot find glyph_id for ' '"),
         )
-            .expect("Cannot find advance for ' '")
-            .x() * font_scale;
+        .expect("Cannot find advance for ' '")
+        .x() * font_scale;
     // FIXME: For non monospaced fonts
     // Also if the two spaces after the line number ever get changed this needs to be adjusted
     // as well
@@ -377,8 +372,7 @@ fn main() -> std::io::Result<()> {
         .add(text_elem);
     // Add window title if provided
     if let Some(window_title) = &args.window_title {
-        let header_text =
-            add_window_title(window_title, &fonts_str, default_text_color, current_x);
+        let header_text = add_window_title(window_title, &fonts_str, default_text_color, current_x);
         document = document.add(header_text);
     }
     // Add window decorations if provided
