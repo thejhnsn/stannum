@@ -15,12 +15,14 @@ pub fn list_themes(theme_set: &mut ThemeSet) -> std::io::Result<()> {
             ));
         }
     };
-    if let Err(e) = theme_set.add_from_folder(&config_dir) {
-        eprintln!("{:?}", e);
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "Could not load themes!",
-        ));
+    if PathBuf::from(&config_dir).exists() {
+        if let Err(e) = theme_set.add_from_folder(&config_dir) {
+            eprintln!("{:?}", e);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Could not load themes!",
+            ));
+        }
     }
     let default_print = String::from_utf8_lossy(include_bytes!("../assets/hello_world.rs"));
     // find the longest line in the default print and pad all lines to this length + 2
