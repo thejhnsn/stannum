@@ -80,7 +80,7 @@ pub fn add_window_buttons(window_decorations: Decorations, width: f32, font_colo
                 .add(close_line1)
                 .add(close_line2)
         }
-        _ => panic!("This should never happen..."),
+        Decorations::None => Group::new(),
     }
 }
 
