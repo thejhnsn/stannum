@@ -40,7 +40,7 @@ pub struct Arguments {
     pub language: Option<String>,
 
     /// Set the theme
-    #[arg(long, default_value = "base16-mocha.dark")]
+    #[arg(long, default_value = "base16-ocean.dark")]
     pub theme: String,
 
     /// List all available themes
