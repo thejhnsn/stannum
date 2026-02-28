@@ -59,7 +59,7 @@ stannum --list-themes
 
 | Option                 | Description                      | Default                  |
 |:-----------------------|:---------------------------------|:-------------------------|
-| `--theme <THEME>`      | Color theme to use               | `base16-mocha.dark`      |
+| `--theme <THEME>`      | Color theme to use               | `base16-ocean.dark`      |
 | `--list-themes`        | List all available themes        | -                        |
 | `--font <FONT>`        | Font family                      | `monospace` / `Consolas` |
 | `--embed-font`         | Embed the font in the SVG        | `false`                  |
