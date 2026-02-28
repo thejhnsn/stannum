@@ -1,4 +1,4 @@
-# Tin
+# Stannum
 
 ![Hello World Example](assets/hello_world.svg)
 
