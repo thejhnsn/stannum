@@ -4,13 +4,13 @@ extern crate syntect;
 use clap::Parser;
 use font_kit::family_name::FamilyName;
 use font_kit::source::SystemSource;
+use stannum::arguments::Arguments;
+use stannum::config::{get_syntax, get_theme, list_themes};
+use stannum::render::render;
 use std::fs;
 use syntect::highlighting::ThemeSet;
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
-use tin::arguments::Arguments;
-use tin::config::{get_syntax, get_theme, list_themes};
-use tin::render::render;
 
 fn main() -> std::io::Result<()> {
     let args = Arguments::parse();
@@ -61,16 +61,14 @@ fn main() -> std::io::Result<()> {
         std::process::exit(1);
     }
 
-    let syntax = get_syntax(&syntax_set, file.to_path_buf(), args.language.clone(), lines[0]);
-
-    let document = render(
-        &args,
-        &lines,
+    let syntax = get_syntax(
         &syntax_set,
-        syntax,
-        theme,
-        &font,
+        file.to_path_buf(),
+        args.language.clone(),
+        lines[0],
     );
+
+    let document = render(&args, &lines, &syntax_set, syntax, theme, &font);
 
     // Save the final SVG
     svg::save(args.output, &document)

@@ -1,4 +1,4 @@
-use tin::arguments;
+use stannum::arguments;
 
 #[test]
 fn empty_line() {
