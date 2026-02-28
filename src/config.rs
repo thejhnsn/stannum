@@ -93,9 +93,9 @@ fn get_config_directory() -> Result<String, String> {
     };
     home.map(|home| {
         if cfg!(unix) {
-            format!("{}/.config/tin/themes/", home)
+            format!("{}/.config/stannum/themes/", home)
         } else {
-            format!("{}\\tin\\themes\\", home)
+            format!("{}\\stannum\\themes\\", home)
         }
     })
 }

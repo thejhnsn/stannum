@@ -1,4 +1,4 @@
-# Tin
+# Stannum
 
 ![Hello World Example](assets/hello_world.svg)
 
@@ -13,7 +13,7 @@ This allows the image to be resized without losing quality.
 cargo install stannum
 ```
 
-You can also download the binary from the [releases](https://github.com/thejhnsn/tin/releases) page or build it
+You can also download the binary from the [releases](https://github.com/thejhnsn/stannum/releases) page or build it
 yourself:
 
 ```bash
@@ -35,8 +35,8 @@ highlighting.
 
 To add custom themes, place them in the themes directory inside your config folder:
 
-* Windows: `%LOCALAPPDATA%\tin\themes`
-* Unix/Linux: `~/.config/tin/themes`
+* Windows: `%LOCALAPPDATA%\stannum\themes`
+* Unix/Linux: `~/.config/stannum/themes`
 
 You can verify which themes are detected by running:
 
