@@ -1,5 +1,6 @@
 use super::arguments::Decorations;
 use super::util::rgb_to_hex;
+use anyhow::{Context, Result};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use font_kit::font::Font;
@@ -9,7 +10,7 @@ use svg::node::element::{
     FilterEffectGaussianBlur, FilterEffectOffset,
 };
 use syntect::highlighting::Color;
-use anyhow::{Context, Result};
+use unicode_width::UnicodeWidthChar;
 pub fn add_window_buttons(window_decorations: Decorations, width: f32, font_color: Color) -> Group {
     match window_decorations {
         Decorations::MacOS => {
@@ -91,7 +92,6 @@ pub fn add_window_title(
     font_color: Color,
     rect_width: f32,
 ) -> Text {
-    
     Text::new(window_title)
         .set("x", rect_width / 2.0)
         .set("y", 15)
@@ -203,13 +203,19 @@ pub fn get_bounding_box(
     }
 }
 
-pub fn get_text_width(font: &Font, font_scale: f32, text: &str, fallback_width: f32) -> f32 {
+pub fn get_text_width(font: &Font, font_scale: f32, text: &str, fallback_char_width: f32) -> f32 {
     text.chars()
         .map(|ch| {
             font.glyph_for_char(ch)
                 .and_then(|glyph_id| font.advance(glyph_id).ok())
                 .map(|advance| advance.x() * font_scale)
-                .unwrap_or(fallback_width)
+                .unwrap_or_else(|| {
+                    // Ask the unicode-width crate how many columns this character needs.
+                    // Emojis return 2, standard chars return 1, and zero-width joiners return 0.
+                    // If the trait returns None (e.g., for control characters), we default to 0.
+                    let char_columns = ch.width().unwrap_or(0) as f32;
+                    fallback_char_width * char_columns
+                })
         })
         .sum()
 }

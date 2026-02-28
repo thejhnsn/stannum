@@ -1,4 +1,4 @@
-use anyhow::{Result, Context, bail};
+use anyhow::{bail, Context, Result};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::PathBuf;
@@ -7,12 +7,12 @@ use syntect::highlighting::{Theme, ThemeSet};
 use syntect::parsing::{SyntaxReference, SyntaxSet};
 
 pub fn list_themes(theme_set: &mut ThemeSet) -> Result<()> {
-    let config_dir = get_config_directory()
-        .context("Could not find config directory!")?;
+    let config_dir = get_config_directory().context("Could not find config directory!")?;
 
     if PathBuf::from(&config_dir).exists() {
-        theme_set.add_from_folder(&config_dir)
-             .context("Could not load themes!")?;
+        theme_set
+            .add_from_folder(&config_dir)
+            .context("Could not load themes!")?;
     }
     let default_print = String::from_utf8_lossy(include_bytes!("../assets/hello_world.rs"));
     // find the longest line in the default print and pad all lines to this length + 2
@@ -38,7 +38,10 @@ pub fn list_themes(theme_set: &mut ThemeSet) -> Result<()> {
     println!("Available themes:");
     for name in theme_names_sorted {
         println!("{}", name);
-        let theme = theme_set.themes.get(&name).context("Theme missing from set")?;
+        let theme = theme_set
+            .themes
+            .get(&name)
+            .context("Theme missing from set")?;
         let mut highlighter = HighlightLines::new(syntax, theme);
 
         let regions = highlighter
@@ -92,17 +95,23 @@ pub fn get_theme(theme_set: &mut ThemeSet, theme: &String) -> Result<Theme> {
     if let Some(extension) = theme_path.extension().and_then(OsStr::to_str) {
         if extension == "tmTheme" {
             // Return theme from file or exit on error
-            return ThemeSet::get_theme(&theme_path).context("Something went wrong while loading the supplied theme!");
+            return ThemeSet::get_theme(&theme_path)
+                .context("Something went wrong while loading the supplied theme!");
         }
     }
     let config_dir = get_config_directory()?;
 
     // check if directory exists, if not then create it
     if !PathBuf::from(&config_dir).exists() {
-        fs::create_dir_all(&config_dir).context(format!("Could not create config directory '{}'", config_dir))?;
+        fs::create_dir_all(&config_dir).context(format!(
+            "Could not create config directory '{}'",
+            config_dir
+        ))?;
     }
 
-    theme_set.add_from_folder(&config_dir).context(format!("Could not load themes from '{}'", config_dir))?;
+    theme_set
+        .add_from_folder(&config_dir)
+        .context(format!("Could not load themes from '{}'", config_dir))?;
 
     if let Some(th) = theme_set.themes.get(theme) {
         // Don't know how performant this clone is but whatever

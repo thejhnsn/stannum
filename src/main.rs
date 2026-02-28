@@ -40,22 +40,29 @@ fn run() -> Result<()> {
         return Ok(());
     }
 
-    let file = args.input.as_ref().context("Input file is required unless listing themes")?;
+    let file = args
+        .input
+        .as_ref()
+        .context("Input file is required unless listing themes")?;
 
     // Load the font from the system for width calculations.
     let source = SystemSource::new();
-    let handle = source.select_best_match(
-        &[FamilyName::Title(args.font.clone())],
-        &font_kit::properties::Properties::new(),
-    ).context(format!("Font not found: {}", args.font))?;
+    let handle = source
+        .select_best_match(
+            &[FamilyName::Title(args.font.clone())],
+            &font_kit::properties::Properties::new(),
+        )
+        .context(format!("Font not found: {}", args.font))?;
 
-    let font = handle.load().context(format!("Failed to load font: {}", args.font))?;
+    let font = handle
+        .load()
+        .context(format!("Failed to load font: {}", args.font))?;
 
     let theme = &get_theme(&mut theme_set, &args.theme)?;
 
     // Read the source code from a file.
-    let code = fs::read_to_string(file)
-        .context(format!("Error reading file {}", file.display()))?;
+    let code =
+        fs::read_to_string(file).context(format!("Error reading file {}", file.display()))?;
 
     let lines: Vec<&str> = LinesWithEndings::from(&code).collect();
     let lines_of_code = lines.len();
