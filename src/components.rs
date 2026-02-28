@@ -9,6 +9,7 @@ use svg::node::element::{
     FilterEffectGaussianBlur, FilterEffectOffset,
 };
 use syntect::highlighting::Color;
+use anyhow::{Context, Result};
 pub fn add_window_buttons(window_decorations: Decorations, width: f32, font_color: Color) -> Group {
     match window_decorations {
         Decorations::MacOS => {
@@ -102,11 +103,12 @@ pub fn add_window_title(
         .set("fill", rgb_to_hex(font_color))
 }
 
-pub fn embed_font(font: Font, font_name: &str) -> Style {
+pub fn embed_font(font: Font, font_name: &str) -> Result<Style> {
     let font_bytes = font
         .copy_font_data()
-        .expect("Failed to embed font")
+        .context("Failed to extract font data for embedding")?
         .to_vec();
+
     let base64_font = STANDARD.encode(&font_bytes);
     let font_face = format!(
         r#"
@@ -117,7 +119,7 @@ pub fn embed_font(font: Font, font_name: &str) -> Style {
         "#,
         font_name, base64_font
     );
-    Style::new(font_face)
+    Ok(Style::new(font_face))
 }
 
 pub fn get_shadow(
@@ -201,14 +203,13 @@ pub fn get_bounding_box(
     }
 }
 
-pub fn get_text_width(font: Font, font_scale: f32, text: &str) -> f32 {
+pub fn get_text_width(font: &Font, font_scale: f32, text: &str, fallback_width: f32) -> f32 {
     text.chars()
-        .filter_map(|ch| {
+        .map(|ch| {
             font.glyph_for_char(ch)
-                .and_then(|glyph_id| {
-                    let advance = font.advance(glyph_id).ok()?;
-                    Some(advance.x() * font_scale)
-                })
+                .and_then(|glyph_id| font.advance(glyph_id).ok())
+                .map(|advance| advance.x() * font_scale)
+                .unwrap_or(fallback_width)
         })
         .sum()
 }

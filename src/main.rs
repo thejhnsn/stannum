@@ -13,7 +13,23 @@ use syntect::highlighting::ThemeSet;
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 
-fn main() -> Result<()> {
+fn main() {
+    // Catch the error here instead of returning it to Rust's default handler
+    if let Err(err) = run() {
+        // \x1b[1;31m makes "error:" bold and red, just like clap!
+        eprintln!("\x1b[1;31merror:\x1b[0m {}", err);
+
+        // Print the underlying cause (if there is one) cleanly
+        if let Some(cause) = err.source() {
+            eprintln!("  ↳ {}", cause);
+        }
+
+        // Exit with a failure code so CI/CD scripts know it failed
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
     let args = Arguments::parse();
 
     // Load the default syntax and theme sets.

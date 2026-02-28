@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{Result, bail, Context};
 use font_kit::font::Font;
 use svg::node::element::{Definitions, Group, Rectangle, TSpan, Text, Use};
 use svg::node::Blob;
@@ -89,13 +89,17 @@ pub fn render(
     // Create a HighlightLines instance.
     let mut highlighter = HighlightLines::new(syntax, theme);
 
-    // Use the theme's default text color if defined; otherwise fallback to black.
-    // TODO: maybe use the background color to determine the text color (invert it?)
-    let default_text_color = theme.settings.foreground.unwrap_or(Color {
-        r: 0,
-        g: 0,
-        b: 0,
-        a: 255,
+    // Use the theme's default text color if defined; otherwise calculate contrast based on background.
+    let default_text_color = theme.settings.foreground.unwrap_or_else(|| {
+        // Use your existing YUV conversion to get the perceived brightness (Y) of the background
+        let (y, _u, _v) = rgb_to_yuv(bg_color);
+        if y > 0.5 {
+            // Light background -> fallback to Black text
+            Color { r: 0, g: 0, b: 0, a: 255 }
+        } else {
+            // Dark background -> fallback to White text
+            Color { r: 255, g: 255, b: 255, a: 255 }
+        }
     });
 
     // Determine which lines should be selected in the image
@@ -109,12 +113,13 @@ pub fn render(
     };
 
     // INFO: Just some estimations on how much space the line numbers are going to take up
-    let width_space_char =
-        font.advance(
-            font.glyph_for_char(' ')
-                .expect("Cannot find glyph_id for ' '"),
-        )
-        .expect("Cannot find advance for ' '")
+    let fallback_char_width = font_size * 0.5;
+    let space_glyph = font
+        .glyph_for_char(' ')
+        .context("Cannot find glyph_id for ' '")?;
+    let width_space_char = font
+        .advance(space_glyph)
+        .context("Cannot find advance for ' '")?
         .x() * font_scale;
     // FIXME: For non monospaced fonts
     let line_number_offset = if line_numbers {
@@ -163,7 +168,7 @@ pub fn render(
         // Get highlighted regions: Vec<(Style, &str)>
         let regions = highlighter
             .highlight_line(line, syntax_set)
-            .expect("Failed to highlight line");
+            .context("Failed to highlight line")?;
 
         // Create an empty string for the line's content
         let mut line_content = String::new();
@@ -195,7 +200,7 @@ pub fn render(
         // Calculate the width of the current line.
         // This is only an approximation, as every svg renderer may render text slightly differently.
         // TODO: fallback to line height if width is not available (e.g. for unknown characters in unicode)
-        let width = get_text_width(font.clone(), font_scale, line);
+        let width = get_text_width(font, font_scale, line, fallback_char_width);
 
         // Create highlighted background for lines in highlighted_lines_iter
         // FIXME: This somewhat depends on the line height... needs to be adjusted if line height
@@ -238,9 +243,9 @@ pub fn render(
             if line_number_highlighted == line_number {
                 let _ = highlighted_cols_iter.next();
                 let column_start_offset =
-                    get_text_width(font.clone(), font_scale, &line[0..start_column - 1]);
+                    get_text_width(font, font_scale, &line[0..start_column - 1], fallback_char_width);
                 let column_end_offset =
-                    get_text_width(font.clone(), font_scale, &line[0..end_column]);
+                    get_text_width(font, font_scale, &line[0..end_column], fallback_char_width);
                 let highlight_rect = Rectangle::new()
                     .set(
                         "x",
@@ -299,7 +304,7 @@ pub fn render(
     let style = if shadow { "filter:url(#shadow)" } else { "" };
     // Embed the font if requested.
     if args.embed_font {
-        let embedding = embed_font(font.clone(), args.font.as_str());
+        let embedding = embed_font(font.clone(), args.font.as_str())?;
         defs = defs.add(embedding);
     }
     // Create a background rectangle using the theme's background color.
