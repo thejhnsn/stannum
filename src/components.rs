@@ -90,7 +90,8 @@ pub fn add_window_title(
     font_color: Color,
     rect_width: f32,
 ) -> Text {
-    let header_text = Text::new(window_title)
+    
+    Text::new(window_title)
         .set("x", rect_width / 2.0)
         .set("y", 15)
         .set("dominant-baseline", "middle")
@@ -98,8 +99,7 @@ pub fn add_window_title(
         .set("font-family", font)
         .set("font-size", 14)
         .set("font-weight", "bold")
-        .set("fill", rgb_to_hex(font_color));
-    header_text
+        .set("fill", rgb_to_hex(font_color))
 }
 
 pub fn embed_font(font: Font, font_name: &str) -> Style {
@@ -205,11 +205,10 @@ pub fn get_text_width(font: Font, font_scale: f32, text: &str) -> f32 {
     text.chars()
         .filter_map(|ch| {
             font.glyph_for_char(ch)
-                .map(|glyph_id| {
+                .and_then(|glyph_id| {
                     let advance = font.advance(glyph_id).ok()?;
                     Some(advance.x() * font_scale)
                 })
-                .flatten()
         })
         .sum()
 }

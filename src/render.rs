@@ -1,3 +1,4 @@
+use anyhow::{Result, bail};
 use font_kit::font::Font;
 use svg::node::element::{Definitions, Group, Rectangle, TSpan, Text, Use};
 use svg::node::Blob;
@@ -24,13 +25,13 @@ pub fn render(
     syntax: &SyntaxReference,
     theme: &Theme,
     font: &Font,
-) -> Document {
+) -> Result<Document> {
     let font_size = DEFAULT_FONT_SIZE;
     let font_scale = font_size / font.metrics().units_per_em as f32;
     let lines_of_code = lines.len();
 
     // Use the theme's background color if defined; otherwise fallback to white.
-    let bg_color = theme.settings.background.unwrap_or_else(|| Color {
+    let bg_color = theme.settings.background.unwrap_or(Color {
         r: 255,
         g: 255,
         b: 255,
@@ -90,7 +91,7 @@ pub fn render(
 
     // Use the theme's default text color if defined; otherwise fallback to black.
     // TODO: maybe use the background color to determine the text color (invert it?)
-    let default_text_color = theme.settings.foreground.unwrap_or_else(|| Color {
+    let default_text_color = theme.settings.foreground.unwrap_or(Color {
         r: 0,
         g: 0,
         b: 0,
@@ -98,14 +99,14 @@ pub fn render(
     });
 
     // Determine which lines should be selected in the image
-    let mut selected_lines_iter = (1..=lines_of_code).collect::<Vec<usize>>().into_iter();
-    if let Some(sel_lines) = &args.lines {
+    let selected_lines_iter: Box<dyn Iterator<Item = usize>> = if let Some(sel_lines) = &args.lines {
         if *sel_lines.last().unwrap_or(&usize::MAX) > lines_of_code {
-            eprintln!("Line out of range!");
-            std::process::exit(1);
+            bail!("Line out of range!");
         }
-        selected_lines_iter = sel_lines.clone().into_iter()
-    }
+        Box::new(sel_lines.clone().into_iter())
+    } else {
+        Box::new(1..=lines_of_code)
+    };
 
     // INFO: Just some estimations on how much space the line numbers are going to take up
     let width_space_char =
@@ -153,15 +154,15 @@ pub fn render(
             current_y += line_height;
             text_elem = text_elem.add(dots);
             // We need to feed the highlighter every line, otherwise some colors may be incorrect
-            for skipped_line in (prev_line_number + 1)..line_number {
-                let _ = highlighter.highlight_line(lines[skipped_line], &syntax_set);
+            for line in &lines[(prev_line_number + 1)..line_number] {
+                let _ = highlighter.highlight_line(line, syntax_set);
             }
         }
         prev_line_number = line_number;
         // Process each line from the file.
         // Get highlighted regions: Vec<(Style, &str)>
         let regions = highlighter
-            .highlight_line(line, &syntax_set)
+            .highlight_line(line, syntax_set)
             .expect("Failed to highlight line");
 
         // Create an empty string for the line's content
@@ -171,16 +172,16 @@ pub fn render(
             let line_number = format!("{:>width$}  ", line_number, width = line_number_width);
             let line_number_tspan =
                 TSpan::new(line_number).set("fill", rgb_to_hex(default_text_color));
-            line_content = format!("{}{}", line_content, line_number_tspan.to_string());
+            line_content = format!("{}{}", line_content, line_number_tspan);
         }
         // For each region, create a nested tspan.
         for (region_style, region_text) in regions {
-            if region_text == "" && region_text == "\n" {
+            if region_text.is_empty() && region_text == "\n" {
                 continue;
             }
             let fill_color = rgb_to_hex(region_style.foreground);
             let region_tspan = TSpan::new(region_text).set("fill", fill_color);
-            line_content = format!("{}{}", line_content, region_tspan.to_string());
+            line_content = format!("{}{}", line_content, region_tspan);
         }
         line_content = format!(
             "<tspan x=\"{}\" y=\"{}\">{}</tspan>",
@@ -341,5 +342,5 @@ pub fn render(
         document = document.add(window_controls);
     }
 
-    document
+    Ok(document)
 }
