@@ -1,7 +1,7 @@
 extern crate svg;
 extern crate syntect;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::Parser;
 use font_kit::family_name::FamilyName;
 use font_kit::source::SystemSource;
@@ -67,7 +67,7 @@ fn run() -> Result<()> {
     let lines: Vec<&str> = LinesWithEndings::from(&code).collect();
     let lines_of_code = lines.len();
     if lines_of_code < 1 {
-        anyhow::bail!("Empty file!");
+        bail!("Empty file!");
     }
 
     let syntax = get_syntax(
