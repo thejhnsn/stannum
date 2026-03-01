@@ -1,3 +1,4 @@
+use anyhow::{bail, Context, Result};
 use font_kit::font::Font;
 use svg::node::element::{Definitions, Group, Rectangle, TSpan, Text, Use};
 use svg::node::Blob;
@@ -24,13 +25,13 @@ pub fn render(
     syntax: &SyntaxReference,
     theme: &Theme,
     font: &Font,
-) -> Document {
+) -> Result<Document> {
     let font_size = DEFAULT_FONT_SIZE;
     let font_scale = font_size / font.metrics().units_per_em as f32;
     let lines_of_code = lines.len();
 
     // Use the theme's background color if defined; otherwise fallback to white.
-    let bg_color = theme.settings.background.unwrap_or_else(|| Color {
+    let bg_color = theme.settings.background.unwrap_or(Color {
         r: 255,
         g: 255,
         b: 255,
@@ -49,9 +50,17 @@ pub fn render(
         rgb_to_hex(modified_color)
     };
 
+    // Ask font-kit for the real name of the font it loaded
+    // This is important if using "monospace" as a fallback, which may resolve to different actual fonts on different systems.
+    let actual_font_family = font.family_name();
     // Prepare the overall text element.
     let mut fonts_str = String::new();
-    fonts_str.push_str(&args.font);
+    // Quote the actual font name so multi-word fonts don't break CSS
+    fonts_str.push_str(&format!("'{}'", actual_font_family));
+    // If the user requested a specific font that is different from the one we actually loaded, add it as a fallback option
+    if args.font != actual_font_family {
+        fonts_str.push_str(&format!(", '{}'", args.font));
+    }
     fonts_str.push_str(", monospace"); // fallback font
     let mut text_elem = Text::new("")
         .set("x", TEXT_PADDING_X)
@@ -88,36 +97,53 @@ pub fn render(
     // Create a HighlightLines instance.
     let mut highlighter = HighlightLines::new(syntax, theme);
 
-    // Use the theme's default text color if defined; otherwise fallback to black.
-    // TODO: maybe use the background color to determine the text color (invert it?)
-    let default_text_color = theme.settings.foreground.unwrap_or_else(|| Color {
-        r: 0,
-        g: 0,
-        b: 0,
-        a: 255,
+    // Use the theme's default text color if defined; otherwise calculate contrast based on background.
+    let default_text_color = theme.settings.foreground.unwrap_or_else(|| {
+        // Use your existing YUV conversion to get the perceived brightness (Y) of the background
+        let (y, _u, _v) = rgb_to_yuv(bg_color);
+        if y > 0.5 {
+            // Light background -> fallback to Black text
+            Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            }
+        } else {
+            // Dark background -> fallback to White text
+            Color {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            }
+        }
     });
 
     // Determine which lines should be selected in the image
-    let mut selected_lines_iter = (1..=lines_of_code).collect::<Vec<usize>>().into_iter();
-    if let Some(sel_lines) = &args.lines {
+    let selected_lines_iter: Box<dyn Iterator<Item = usize>> = if let Some(sel_lines) = &args.lines
+    {
         if *sel_lines.last().unwrap_or(&usize::MAX) > lines_of_code {
-            eprintln!("Line out of range!");
-            std::process::exit(1);
+            bail!("Line out of range!");
         }
-        selected_lines_iter = sel_lines.clone().into_iter()
-    }
+        Box::new(sel_lines.clone().into_iter())
+    } else {
+        Box::new(1..=lines_of_code)
+    };
 
     // INFO: Just some estimations on how much space the line numbers are going to take up
-    let width_space_char =
-        font.advance(
-            font.glyph_for_char(' ')
-                .expect("Cannot find glyph_id for ' '"),
-        )
-        .expect("Cannot find advance for ' '")
-        .x() * font_scale;
-    // FIXME: For non monospaced fonts
+    let fallback_char_width = font_size * 0.5;
+    get_text_width(font, font_scale, " ", fallback_char_width);
+
+    // Approximate the width of the line number column based on the widest digit (most likely "8")
+    // and the number of digits in the total line count, plus some padding.
     let line_number_offset = if line_numbers {
-        width_space_char * (2 + line_number_width) as f32
+        let max_num_str = format!(
+            "{:>width$}  ",
+            "8".repeat(line_number_width),
+            width = line_number_width
+        );
+        get_text_width(font, font_scale, &max_num_str, fallback_char_width)
     } else {
         0.0
     };
@@ -153,16 +179,16 @@ pub fn render(
             current_y += line_height;
             text_elem = text_elem.add(dots);
             // We need to feed the highlighter every line, otherwise some colors may be incorrect
-            for skipped_line in (prev_line_number + 1)..line_number {
-                let _ = highlighter.highlight_line(lines[skipped_line], &syntax_set);
+            for line in &lines[(prev_line_number + 1)..line_number] {
+                let _ = highlighter.highlight_line(line, syntax_set);
             }
         }
         prev_line_number = line_number;
         // Process each line from the file.
         // Get highlighted regions: Vec<(Style, &str)>
         let regions = highlighter
-            .highlight_line(line, &syntax_set)
-            .expect("Failed to highlight line");
+            .highlight_line(line, syntax_set)
+            .context("Failed to highlight line")?;
 
         // Create an empty string for the line's content
         let mut line_content = String::new();
@@ -171,16 +197,16 @@ pub fn render(
             let line_number = format!("{:>width$}  ", line_number, width = line_number_width);
             let line_number_tspan =
                 TSpan::new(line_number).set("fill", rgb_to_hex(default_text_color));
-            line_content = format!("{}{}", line_content, line_number_tspan.to_string());
+            line_content = format!("{}{}", line_content, line_number_tspan);
         }
         // For each region, create a nested tspan.
         for (region_style, region_text) in regions {
-            if region_text == "" && region_text == "\n" {
+            if region_text.is_empty() && region_text == "\n" {
                 continue;
             }
             let fill_color = rgb_to_hex(region_style.foreground);
             let region_tspan = TSpan::new(region_text).set("fill", fill_color);
-            line_content = format!("{}{}", line_content, region_tspan.to_string());
+            line_content = format!("{}{}", line_content, region_tspan);
         }
         line_content = format!(
             "<tspan x=\"{}\" y=\"{}\">{}</tspan>",
@@ -193,8 +219,8 @@ pub fn render(
 
         // Calculate the width of the current line.
         // This is only an approximation, as every svg renderer may render text slightly differently.
-        // TODO: fallback to line height if width is not available (e.g. for unknown characters in unicode)
-        let width = get_text_width(font.clone(), font_scale, line);
+        let visible_line = line.trim_end_matches(&['\n', '\r'][..]);
+        let width = get_text_width(font, font_scale, visible_line, fallback_char_width);
 
         // Create highlighted background for lines in highlighted_lines_iter
         // FIXME: This somewhat depends on the line height... needs to be adjusted if line height
@@ -204,16 +230,26 @@ pub fn render(
                 let _ = highlighted_lines_iter.next();
                 match args.highlight_mode {
                     HighlightMode::Fit => {
-                        // FIXME: Not pretty... don't know whether there is actually a better way
-                        // to do this though
-                        let code_start_x: f32 =
-                            line.chars().take_while(|c| c.is_whitespace()).count() as f32
-                                * width_space_char;
+                        // Measure exact width of leading whitespace (handles tabs and non-mono fonts perfectly)
+                        let leading_whitespace: String = visible_line
+                            .chars()
+                            .take_while(|c| c.is_whitespace())
+                            .collect();
+                        let code_start_x = get_text_width(
+                            font,
+                            font_scale,
+                            &leading_whitespace,
+                            fallback_char_width,
+                        );
+
+                        // Standardize highlight height and Y-position dynamically based on line_height
+                        let rect_y = current_y - font_size;
+
                         let highlight_rect = Rectangle::new()
                             .set("x", TEXT_PADDING_X + code_start_x + line_number_offset)
-                            .set("y", current_y - font_size)
+                            .set("y", rect_y)
                             .set("width", width - code_start_x)
-                            .set("height", font_size + 4.0)
+                            .set("height", line_height)
                             .set("fill", highlight_color.clone());
                         highlight_group = highlight_group.add(highlight_rect);
                     }
@@ -222,7 +258,7 @@ pub fn render(
                             .set(
                                 "y",
                                 current_y - font_size
-                                    + (if args.line_spacing == 0.0 { 3.0 } else { 0.0 }),
+                                    + (if args.line_spacing == 0.0 { 3.0 } else { 0.0 }), // TODO: Is this needed?
                             )
                             .set("href", "#highlightRect");
                         highlight_group = highlight_group.add(highlight_rect);
@@ -236,16 +272,32 @@ pub fn render(
         {
             if line_number_highlighted == line_number {
                 let _ = highlighted_cols_iter.next();
+
+                let char_count = line.chars().count();
+                let safe_start = start_column.min(char_count).saturating_sub(1); // Convert 1-based index to 0-based
+                let safe_end = end_column.min(char_count);
+
+                if safe_start >= safe_end {
+                    continue; // Ignore invalid ranges gracefully
+                }
+
+                // Use char iterators to safely slice unicode text instead of byte slicing
+                let prefix: String = line.chars().take(safe_start).collect();
+                let highlighted: String = line.chars().take(safe_end).collect();
+
                 let column_start_offset =
-                    get_text_width(font.clone(), font_scale, &line[0..start_column - 1]);
+                    get_text_width(font, font_scale, &prefix, fallback_char_width);
                 let column_end_offset =
-                    get_text_width(font.clone(), font_scale, &line[0..end_column]);
+                    get_text_width(font, font_scale, &highlighted, fallback_char_width);
+
+                let rect_y = current_y - font_size;
+
                 let highlight_rect = Rectangle::new()
                     .set(
                         "x",
                         TEXT_PADDING_X + line_number_offset + column_start_offset,
                     )
-                    .set("y", current_y - line_height + 4.0)
+                    .set("y", rect_y)
                     .set("width", column_end_offset - column_start_offset)
                     .set("height", line_height)
                     .set("fill", highlight_color.clone());
@@ -298,7 +350,7 @@ pub fn render(
     let style = if shadow { "filter:url(#shadow)" } else { "" };
     // Embed the font if requested.
     if args.embed_font {
-        let embedding = embed_font(font.clone(), args.font.as_str());
+        let embedding = embed_font(font.clone(), &actual_font_family)?;
         defs = defs.add(embedding);
     }
     // Create a background rectangle using the theme's background color.
@@ -341,5 +393,5 @@ pub fn render(
         document = document.add(window_controls);
     }
 
-    document
+    Ok(document)
 }

@@ -1,5 +1,6 @@
 use super::arguments::Decorations;
 use super::util::rgb_to_hex;
+use anyhow::{Context, Result};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use font_kit::font::Font;
@@ -9,6 +10,7 @@ use svg::node::element::{
     FilterEffectGaussianBlur, FilterEffectOffset,
 };
 use syntect::highlighting::Color;
+use unicode_width::UnicodeWidthChar;
 pub fn add_window_buttons(window_decorations: Decorations, width: f32, font_color: Color) -> Group {
     match window_decorations {
         Decorations::MacOS => {
@@ -90,7 +92,7 @@ pub fn add_window_title(
     font_color: Color,
     rect_width: f32,
 ) -> Text {
-    let header_text = Text::new(window_title)
+    Text::new(window_title)
         .set("x", rect_width / 2.0)
         .set("y", 15)
         .set("dominant-baseline", "middle")
@@ -98,15 +100,15 @@ pub fn add_window_title(
         .set("font-family", font)
         .set("font-size", 14)
         .set("font-weight", "bold")
-        .set("fill", rgb_to_hex(font_color));
-    header_text
+        .set("fill", rgb_to_hex(font_color))
 }
 
-pub fn embed_font(font: Font, font_name: &str) -> Style {
+pub fn embed_font(font: Font, font_name: &str) -> Result<Style> {
     let font_bytes = font
         .copy_font_data()
-        .expect("Failed to embed font")
+        .context("Failed to extract font data for embedding")?
         .to_vec();
+
     let base64_font = STANDARD.encode(&font_bytes);
     let font_face = format!(
         r#"
@@ -117,7 +119,7 @@ pub fn embed_font(font: Font, font_name: &str) -> Style {
         "#,
         font_name, base64_font
     );
-    Style::new(font_face)
+    Ok(Style::new(font_face))
 }
 
 pub fn get_shadow(
@@ -201,15 +203,19 @@ pub fn get_bounding_box(
     }
 }
 
-pub fn get_text_width(font: Font, font_scale: f32, text: &str) -> f32 {
+pub fn get_text_width(font: &Font, font_scale: f32, text: &str, fallback_char_width: f32) -> f32 {
     text.chars()
-        .filter_map(|ch| {
+        .map(|ch| {
             font.glyph_for_char(ch)
-                .map(|glyph_id| {
-                    let advance = font.advance(glyph_id).ok()?;
-                    Some(advance.x() * font_scale)
+                .and_then(|glyph_id| font.advance(glyph_id).ok())
+                .map(|advance| advance.x() * font_scale)
+                .unwrap_or_else(|| {
+                    // Ask the unicode-width crate how many columns this character needs.
+                    // Emojis return 2, standard chars return 1, and zero-width joiners return 0.
+                    // If the trait returns None (e.g., for control characters), we default to 0.
+                    let char_columns = ch.width().unwrap_or(0) as f32;
+                    fallback_char_width * char_columns
                 })
-                .flatten()
         })
         .sum()
 }
